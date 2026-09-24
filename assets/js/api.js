@@ -33,9 +33,17 @@ const SGA_API = (() => {
   }
 
   function saveSession(session) {
-    const expiresAt = session.expires_at
-      ? new Date(session.expires_at).getTime()
-      : Date.now() + (session.expires_in || 3600) * 1000;
+    // Supabase retorna expires_at em SEGUNDOS (Unix timestamp).
+    // Multiplica por 1000 para converter para milissegundos.
+    // Se não vier, usa expires_in (segundos) a partir de agora.
+    let expiresAt;
+    if (session.expires_at) {
+      expiresAt = Number(session.expires_at) * 1000;
+      // Se o valor já parecer milissegundos (> ano 2001 em ms), não multiplica
+      if (expiresAt > 1e12) expiresAt = Number(session.expires_at);
+    } else {
+      expiresAt = Date.now() + (session.expires_in || 3600) * 1000;
+    }
     const toStore = { ...session, expires_at: expiresAt };
     localStorage.setItem(SGA_CONFIG.STORAGE_SESSION, JSON.stringify(toStore));
     return toStore;
