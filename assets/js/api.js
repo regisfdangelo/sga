@@ -33,14 +33,14 @@ const SGA_API = (() => {
   }
 
   function saveSession(session) {
-    // Supabase retorna expires_at em SEGUNDOS (Unix timestamp).
-    // Multiplica por 1000 para converter para milissegundos.
-    // Se não vier, usa expires_in (segundos) a partir de agora.
+    // Supabase retorna expires_at em SEGUNDOS (Unix timestamp, ~1.7e9).
+    // Date.now() usa MILISSEGUNDOS (~1.7e12).
+    // Regra: se valor < 1e12, é segundos → multiplica por 1000.
+    //        se valor >= 1e12, já é milissegundos → usa direto.
     let expiresAt;
     if (session.expires_at) {
-      expiresAt = Number(session.expires_at) * 1000;
-      // Se o valor já parecer milissegundos (> ano 2001 em ms), não multiplica
-      if (expiresAt > 1e12) expiresAt = Number(session.expires_at);
+      const raw = Number(session.expires_at);
+      expiresAt = raw < 1e12 ? raw * 1000 : raw;
     } else {
       expiresAt = Date.now() + (session.expires_in || 3600) * 1000;
     }
