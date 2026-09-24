@@ -9,8 +9,8 @@
  * - NUNCA exponha a SERVICE_ROLE KEY no navegador.
  */
 const SGA_CONFIG = {
-  SUPABASE_URL: 'https://SEU-PROJETO.supabase.co',
-  SUPABASE_ANON_KEY: 'SUA_ANON_KEY_AQUI',
+  SUPABASE_URL: 'https://osqyqswxnistlqofdehj.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zcXlxc3d4bmlzdGxxb2ZkZWhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNDE0NTUsImV4cCI6MjEwNTgxNzQ1NX0.m1lXeLEw2qm-lwW7OZSBbrsb7ISoOREXlIAcejGrib4',
 
   // Chave usada no localStorage para guardar a sessão
   STORAGE_SESSION: 'sga_session',
