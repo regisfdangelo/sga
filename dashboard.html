@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SGA - Painel de gestão de arquivo">
+  <title>SGA | Painel</title>
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body class="app-page">
+
+  <div class="app-layout">
+
+    <!-- ===================== MENU LATERAL ===================== -->
+    <aside class="sidebar" id="sidebar" aria-label="Menu principal">
+      <div class="sidebar-header">
+        <div class="sidebar-logo" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="6" y="10" width="36" height="30" rx="3" stroke="currentColor" stroke-width="2.5"/>
+            <path d="M6 18h36" stroke="currentColor" stroke-width="2.5"/>
+            <rect x="12" y="24" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="2"/>
+            <path d="M26 26h10M26 31h10M26 36h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <strong>SGA</strong>
+          <span>Gestão de Arquivo</span>
+        </div>
+        <button class="sidebar-close" id="sidebar-close" aria-label="Fechar menu">&times;</button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-section="painel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          <span>Painel</span>
+        </button>
+        <button class="nav-item" data-section="pesquisa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+          <span>Pesquisa</span>
+        </button>
+        <button class="nav-item" data-section="cadastro">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
+          <span>Cadastro</span>
+        </button>
+        <button class="nav-item" data-section="emprestimo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg>
+          <span>Empréstimo / Devolução</span>
+        </button>
+        <button class="nav-item" data-section="relatorio">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-6"/></svg>
+          <span>Relatórios</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <div class="user-avatar" id="user-avatar" aria-hidden="true">U</div>
+          <div class="user-details">
+            <strong id="user-name">Usuário</strong>
+            <span id="user-role">—</span>
+          </div>
+        </div>
+        <button class="nav-item nav-logout" id="btn-logout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+          <span>Sair</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- ===================== CONTEÚDO PRINCIPAL ===================== -->
+    <div class="main-area">
+
+      <header class="topbar">
+        <button class="btn-menu-toggle" id="btn-menu-toggle" aria-label="Abrir menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <h2 id="section-title">Painel</h2>
+        <div class="topbar-date" id="topbar-date"></div>
+      </header>
+
+      <main class="content" id="content">
+
+        <!-- ============ PAINEL ============ -->
+        <section class="section active" id="section-painel" aria-labelledby="section-title">
+          <div class="metrics-grid">
+            <article class="metric-card metric-primary">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-total">0</span>
+                <span class="metric-label">Total no Acervo</span>
+              </div>
+            </article>
+
+            <article class="metric-card metric-warning">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-emprestados">0</span>
+                <span class="metric-label">Pendentes de Devolução</span>
+              </div>
+            </article>
+
+            <article class="metric-card metric-danger">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-atrasados">0</span>
+                <span class="metric-label">Empréstimos Atrasados</span>
+              </div>
+            </article>
+
+            <article class="metric-card metric-success">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-descarte">0</span>
+                <span class="metric-label">Para Descarte</span>
+              </div>
+            </article>
+          </div>
+
+          <div class="grid-2col">
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Últimos Documentos Cadastrados</h3>
+              </header>
+              <div class="panel-body table-wrap">
+                <table class="data-table" id="table-recentes">
+                  <thead>
+                    <tr>
+                      <th>Protocolo</th>
+                      <th>Descrição</th>
+                      <th>Setor</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="4" class="empty-state">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Empréstimos Ativos</h3>
+              </header>
+              <div class="panel-body table-wrap">
+                <table class="data-table" id="table-emprestimos-ativos">
+                  <thead>
+                    <tr>
+                      <th>Documento</th>
+                      <th>Solicitante</th>
+                      <th>Prevista</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="4" class="empty-state">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ============ PESQUISA ============ -->
+        <section class="section" id="section-pesquisa">
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Pesquisa de Documentos</h3>
+            </header>
+            <div class="panel-body">
+              <form id="form-pesquisa" class="filters-row" novalidate>
+                <div class="form-group">
+                  <label for="pesq-texto">Texto / Protocolo / Código</label>
+                  <input type="text" id="pesq-texto" placeholder="Buscar por descrição, protocolo…" maxlength="200">
+                </div>
+                <div class="form-group">
+                  <label for="pesq-setor">Setor</label>
+                  <select id="pesq-setor">
+                    <option value="">Todos</option>
+                    <option>DP</option>
+                    <option>RH</option>
+                    <option>Operacional</option>
+                    <option>Comercial</option>
+                    <option>Jurídico</option>
+                    <option>Medicina</option>
+                    <option>Compras</option>
+                    <option>Almoxarifado</option>
+                    <option>Manutenção</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="pesq-status">Status</label>
+                  <select id="pesq-status">
+                    <option value="">Todos</option>
+                    <option value="disponivel">Disponível</option>
+                    <option value="emprestado">Emprestado</option>
+                    <option value="descartavel">Descartável</option>
+                    <option value="descartado">Descartado</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="pesq-tipo">Tipo</label>
+                  <input type="text" id="pesq-tipo" placeholder="Ex.: Contrato" maxlength="80">
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Pesquisar</button>
+                  <button type="button" class="btn btn-ghost" id="btn-limpar-pesquisa">Limpar</button>
+                </div>
+              </form>
+            </div>
+          </article>
+
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Resultados <span class="badge" id="pesquisa-count">0</span></h3>
+            </header>
+            <div class="panel-body table-wrap">
+              <table class="data-table" id="table-pesquisa">
+                <thead>
+                  <tr>
+                    <th>Protocolo</th>
+                    <th>Código</th>
+                    <th>Descrição</th>
+                    <th>Tipo</th>
+                    <th>Setor</th>
+                    <th>Status</th>
+                    <th>Localização</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="8" class="empty-state">Use os filtros acima para pesquisar</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <!-- ============ CADASTRO ============ -->
+        <section class="section" id="section-cadastro">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="tab-documento" role="tab">Documentos</button>
+            <button class="tab" data-tab="tab-local" role="tab">Salas / Estantes / Prateleiras / Caixas</button>
+          </div>
+
+          <!-- Aba Documentos -->
+          <div class="tab-panel active" id="tab-documento">
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Novo Documento</h3>
+                <span class="protocol-preview" id="protocolo-preview">Protocolo: —</span>
+              </header>
+              <div class="panel-body">
+                <form id="form-documento" class="form-grid" novalidate>
+                  <div class="form-group span-2">
+                    <label for="doc-descricao">Descrição *</label>
+                    <textarea id="doc-descricao" rows="2" required maxlength="500" placeholder="Descrição objetiva do documento ou processo"></textarea>
+                    <span class="field-error" id="error-doc-descricao" role="alert"></span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-codigo">Código / Referência</label>
+                    <input type="text" id="doc-codigo" maxlength="60" placeholder="Código interno">
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-tipo">Tipo *</label>
+                    <input type="text" id="doc-tipo" list="list-tipo" required maxlength="80" placeholder="Ex.: Contrato, Ficha, Relatório">
+                    <datalist id="list-tipo">
+                      <option>Contrato</option>
+                      <option>Ficha Funcional</option>
+                      <option>Relatório</option>
+                      <option>Processo Seletivo</option>
+                      <option>Atestado</option>
+                      <option>Pedido de Compra</option>
+                      <option>Nota Fiscal</option>
+                      <option>Laudo</option>
+                      <option>Ofício</option>
+                      <option>Memorando</option>
+                    </datalist>
+                    <span class="field-error" id="error-doc-tipo" role="alert"></span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-setor">Setor *</label>
+                    <select id="doc-setor" required>
+                      <option value="">Selecione…</option>
+                      <option>DP</option>
+                      <option>RH</option>
+                      <option>Operacional</option>
+                      <option>Comercial</option>
+                      <option>Jurídico</option>
+                      <option>Medicina</option>
+                      <option>Compras</option>
+                      <option>Almoxarifado</option>
+                      <option>Manutenção</option>
+                    </select>
+                    <span class="field-error" id="error-doc-setor" role="alert"></span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-categoria">Categoria</label>
+                    <select id="doc-categoria">
+                      <option value="">Selecione…</option>
+                      <option>Administrativo</option>
+                      <option>Fiscal</option>
+                      <option>Judicial</option>
+                      <option>Financeiro</option>
+                      <option>Trabalhista</option>
+                      <option>Técnico</option>
+                      <option>Correspondência</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-data">Data do Documento</label>
+                    <input type="date" id="doc-data">
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-prazo">Prazo de Guarda (temporalidade)</label>
+                    <input type="date" id="doc-prazo">
+                  </div>
+
+                  <div class="form-group">
+                    <label for="doc-caixa">Caixa / Localização Física</label>
+                    <select id="doc-caixa">
+                      <option value="">Selecione…</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group span-2">
+                    <label for="doc-observacoes">Observações</label>
+                    <textarea id="doc-observacoes" rows="2" maxlength="1000" placeholder="Informações complementares"></textarea>
+                  </div>
+
+                  <div class="form-actions span-2">
+                    <button type="submit" class="btn btn-primary" id="btn-salvar-doc">
+                      <span class="btn-label">Salvar Documento</span>
+                      <span class="btn-spinner" aria-hidden="true"></span>
+                    </button>
+                    <button type="reset" class="btn btn-ghost">Limpar</button>
+                  </div>
+                </form>
+              </div>
+            </article>
+          </div>
+
+          <!-- Aba Localização -->
+          <div class="tab-panel" id="tab-local">
+            <div class="grid-2col">
+              <article class="panel">
+                <header class="panel-header"><h3>Nova Sala</h3></header>
+                <div class="panel-body">
+                  <form id="form-sala" class="form-stack" novalidate>
+                    <div class="form-group">
+                      <label for="sala-codigo">Código *</label>
+                      <input type="text" id="sala-codigo" required maxlength="30" placeholder="Ex.: S01">
+                    </div>
+                    <div class="form-group">
+                      <label for="sala-descricao">Descrição</label>
+                      <input type="text" id="sala-descricao" maxlength="120" placeholder="Ex.: Arquivo Central">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar Sala</button>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel">
+                <header class="panel-header"><h3>Nova Estante</h3></header>
+                <div class="panel-body">
+                  <form id="form-estante" class="form-stack" novalidate>
+                    <div class="form-group">
+                      <label for="estante-sala">Sala *</label>
+                      <select id="estante-sala" required><option value="">Selecione…</option></select>
+                    </div>
+                    <div class="form-group">
+                      <label for="estante-codigo">Código *</label>
+                      <input type="text" id="estante-codigo" required maxlength="30" placeholder="Ex.: E01">
+                    </div>
+                    <div class="form-group">
+                      <label for="estante-descricao">Descrição</label>
+                      <input type="text" id="estante-descricao" maxlength="120">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar Estante</button>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel">
+                <header class="panel-header"><h3>Nova Prateleira</h3></header>
+                <div class="panel-body">
+                  <form id="form-prateleira" class="form-stack" novalidate>
+                    <div class="form-group">
+                      <label for="prat-estante">Estante *</label>
+                      <select id="prat-estante" required><option value="">Selecione…</option></select>
+                    </div>
+                    <div class="form-group">
+                      <label for="prat-codigo">Código *</label>
+                      <input type="text" id="prat-codigo" required maxlength="30" placeholder="Ex.: P01">
+                    </div>
+                    <div class="form-group">
+                      <label for="prat-descricao">Descrição</label>
+                      <input type="text" id="prat-descricao" maxlength="120">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar Prateleira</button>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel">
+                <header class="panel-header"><h3>Nova Caixa</h3></header>
+                <div class="panel-body">
+                  <form id="form-caixa" class="form-stack" novalidate>
+                    <div class="form-group">
+                      <label for="caixa-sala">Sala *</label>
+                      <select id="caixa-sala" required><option value="">Selecione…</option></select>
+                    </div>
+                    <div class="form-group">
+                      <label for="caixa-estante">Estante</label>
+                      <select id="caixa-estante"><option value="">Selecione…</option></select>
+                    </div>
+                    <div class="form-group">
+                      <label for="caixa-prateleira">Prateleira</label>
+                      <select id="caixa-prateleira"><option value="">Selecione…</option></select>
+                    </div>
+                    <div class="form-group">
+                      <label for="caixa-codigo">Código *</label>
+                      <input type="text" id="caixa-codigo" required maxlength="30" placeholder="Ex.: CX-001">
+                    </div>
+                    <div class="form-group">
+                      <label for="caixa-capacidade">Capacidade (pastas)</label>
+                      <input type="number" id="caixa-capacidade" min="1" max="999" value="50">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar Caixa</button>
+                  </form>
+                </div>
+              </article>
+            </div>
+
+            <article class="panel">
+              <header class="panel-header"><h3>Caixas Cadastradas</h3></header>
+              <div class="panel-body table-wrap">
+                <table class="data-table" id="table-caixas">
+                  <thead>
+                    <tr><th>Código</th><th>Sala</th><th>Estante</th><th>Prateleira</th><th>Capacidade</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="5" class="empty-state">Nenhuma caixa cadastrada</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ============ EMPRÉSTIMO / DEVOLUÇÃO ============ -->
+        <section class="section" id="section-emprestimo">
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Registrar Empréstimo</h3>
+            </header>
+            <div class="panel-body">
+              <form id="form-emprestimo" class="form-grid" novalidate>
+                <div class="form-group span-2">
+                  <label for="emp-doc">Documento *</label>
+                  <select id="emp-doc" required>
+                    <option value="">Selecione o documento…</option>
+                  </select>
+                  <span class="field-error" id="error-emp-doc" role="alert"></span>
+                </div>
+
+                <div class="form-group">
+                  <label for="emp-solicitante">Nome do Solicitante *</label>
+                  <input type="text" id="emp-solicitante" required maxlength="120" placeholder="Nome completo">
+                  <span class="field-error" id="error-emp-solicitante" role="alert"></span>
+                </div>
+
+                <div class="form-group">
+                  <label for="emp-email">E-mail do Solicitante</label>
+                  <input type="email" id="emp-email" maxlength="120" placeholder="opcional@email.com">
+                </div>
+
+                <div class="form-group">
+                  <label for="emp-data-emprestimo">Data do Empréstimo *</label>
+                  <input type="date" id="emp-data-emprestimo" required>
+                </div>
+
+                <div class="form-group">
+                  <label for="emp-data-prevista">Data de Devolução Prevista *</label>
+                  <input type="date" id="emp-data-prevista" required>
+                  <span class="field-error" id="error-emp-data-prevista" role="alert"></span>
+                </div>
+
+                <div class="form-group span-2">
+                  <label for="emp-obs">Observações</label>
+                  <textarea id="emp-obs" rows="2" maxlength="500"></textarea>
+                </div>
+
+                <div class="form-actions span-2">
+                  <button type="submit" class="btn btn-primary" id="btn-salvar-emp">
+                    <span class="btn-label">Registrar Empréstimo</span>
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </article>
+
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Empréstimos Ativos <span class="badge" id="emprestimos-ativos-count">0</span></h3>
+            </header>
+            <div class="panel-body table-wrap">
+              <table class="data-table" id="table-emprestimos">
+                <thead>
+                  <tr>
+                    <th>Documento</th>
+                    <th>Solicitante</th>
+                    <th>Saída</th>
+                    <th>Prevista</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="6" class="empty-state">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <!-- ============ RELATÓRIOS ============ -->
+        <section class="section" id="section-relatorio">
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Gerar Relatório</h3>
+            </header>
+            <div class="panel-body">
+              <form id="form-relatorio" class="filters-row" novalidate>
+                <div class="form-group">
+                  <label for="rel-tipo">Tipo de Relatório</label>
+                  <select id="rel-tipo">
+                    <option value="acervo">Acervo Completo</option>
+                    <option value="setor">Documentos por Setor</option>
+                    <option value="status">Documentos por Status</option>
+                    <option value="temporalidade">Temporalidade / Prazos de Guarda</option>
+                    <option value="emprestimos">Empréstimos (histórico)</option>
+                    <option value="descarte">Para Descarte</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="rel-setor">Setor (filtro)</label>
+                  <select id="rel-setor">
+                    <option value="">Todos</option>
+                    <option>DP</option>
+                    <option>RH</option>
+                    <option>Operacional</option>
+                    <option>Comercial</option>
+                    <option>Jurídico</option>
+                    <option>Medicina</option>
+                    <option>Compras</option>
+                    <option>Almoxarifado</option>
+                    <option>Manutenção</option>
+                  </select>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Gerar</button>
+                  <button type="button" class="btn btn-ghost" id="btn-imprimir" disabled>Imprimir / PDF</button>
+                </div>
+              </form>
+            </div>
+          </article>
+
+          <article class="panel" id="relatorio-resultado" hidden>
+            <header class="panel-header">
+              <h3 id="relatorio-titulo">Relatório</h3>
+              <span class="rel-meta" id="relatorio-meta"></span>
+            </header>
+            <div class="panel-body table-wrap" id="relatorio-conteudo"></div>
+          </article>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal de detalhes -->
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal-header">
+        <h3 id="modal-title">Detalhes</h3>
+        <button class="modal-close" id="modal-close" aria-label="Fechar">&times;</button>
+      </header>
+      <div class="modal-body" id="modal-body"></div>
+      <footer class="modal-footer" id="modal-footer">
+        <button class="btn btn-ghost" id="modal-btn-close">Fechar</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
