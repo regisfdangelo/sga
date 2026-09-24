@@ -165,28 +165,32 @@ const SGA_API = (() => {
 
   /** Garante que o usuário autenticado tenha linha na tabela public.usuarios. */
   async function getOrCreateUsuario(authUser) {
-    try {
-      const rows = await request('GET', `/rest/v1/usuarios?id=eq.${authUser.id}&select=*`);
-      if (rows && rows.length) return rows[0];
-    } catch { /* pode não existir ainda */ }
+    if (!authUser || !authUser.id) {
+      return { id: null, email: '', nome: 'Usuário', perfil: 'solicitante' };
+    }
 
-    // Insert; se falhar por RLS, tenta ler de novo
+    try {
+      // silent401: não redireciona nem limpa sessão se falhar
+      const rows = await request('GET', `/rest/v1/usuarios?id=eq.${authUser.id}&select=*`, undefined, { silent401: true });
+      if (rows && rows.length) return rows[0];
+    } catch { /* tabela pode não existir ainda */ }
+
     try {
       const novo = await request('POST', '/rest/v1/usuarios', {
         id: authUser.id,
         email: authUser.email,
         nome: authUser.user_metadata?.nome || authUser.email.split('@')[0],
         perfil: authUser.user_metadata?.perfil || 'solicitante',
-      }, { headers: { Prefer: 'return=representation' } });
+      }, { silent401: true, headers: { Prefer: 'return=representation' } });
       if (Array.isArray(novo) && novo[0]) return novo[0];
       if (novo && novo.id) return novo;
-    } catch { /* ignore */ }
+    } catch { /* RLS pode bloquear insert */ }
 
-    // Fallback local
+    // Fallback local — não depende do banco
     return {
       id: authUser.id,
       email: authUser.email,
-      nome: authUser.user_metadata?.nome || authUser.email,
+      nome: authUser.user_metadata?.nome || authUser.email.split('@')[0] || authUser.email,
       perfil: authUser.user_metadata?.perfil || 'solicitante',
     };
   }
