@@ -180,18 +180,22 @@ const SGA_API = (() => {
         id: authUser.id,
         email: authUser.email,
         nome: authUser.user_metadata?.nome || authUser.email.split('@')[0],
-        perfil: authUser.user_metadata?.perfil || 'solicitante',
+        // SEGURANCA (A2): perfil NUNCA vem do cliente. Cadastro publico
+        // nasce sempre 'solicitante'; promocao e exclusiva do administrador.
+        perfil: 'solicitante',
       }, { silent401: true, headers: { Prefer: 'return=representation' } });
       if (Array.isArray(novo) && novo[0]) return novo[0];
       if (novo && novo.id) return novo;
     } catch { /* RLS pode bloquear insert */ }
 
-    // Fallback local — não depende do banco
+    // Fallback local — não depende do banco.
+    // SEGURANCA (A2): nao confia em user_metadata.perfil (controlavel pelo usuario).
+    // O perfil real sempre vem da leitura em public.usuarios (feita acima).
     return {
       id: authUser.id,
       email: authUser.email,
       nome: authUser.user_metadata?.nome || authUser.email.split('@')[0] || authUser.email,
-      perfil: authUser.user_metadata?.perfil || 'solicitante',
+      perfil: 'solicitante',
     };
   }
 
