@@ -730,7 +730,22 @@ a { color: var(--primary); }
 }
 .detail-row:last-child { border-bottom: none; }
 .detail-row dt { color: var(--text-muted); font-weight: 600; }
-.detail-row dd { color: var(--text); }
+.detail-row dd { color: var(--text); min-width: 0; }
+
+/* JSON exibido no modal de auditoria */
+.detail-row pre.aud-json {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .7rem;
+  font-size: .76rem;
+  line-height: 1.5;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: .3rem;
+}
 
 /* ============================================================
    TOASTS

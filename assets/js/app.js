@@ -145,10 +145,15 @@
     const form = document.getElementById('form-login');
     if (!form) return;
 
-    // Se já há sessão válida, vai direto ao painel
+    // Se já há sessão válida com perfil, vai direto ao painel
     if (SGA_API.getSession()) {
-      window.location.replace('dashboard.html');
-      return;
+      const guardado = SGA_API.getStoredUser();
+      if (guardado && SGA_API.PERFIS.includes(guardado.perfil)) {
+        window.location.replace('dashboard.html');
+        return;
+      }
+      // Sessão sem perfil válido: encerra para não criar loop de redirecionamento
+      SGA_API.logout();
     }
 
     const emailEl = document.getElementById('login-email');
@@ -190,6 +195,7 @@
         if (remember.checked) {
           localStorage.setItem(SGA_CONFIG.STORAGE_REMEMBER, '1');
         }
+        await SGA_API.registrarEvento('LOGIN');
         window.location.href = 'dashboard.html';
       } catch (err) {
         alertEl.textContent = err.message || 'Não foi possível entrar.';
@@ -214,6 +220,12 @@
       return;
     }
 
+    // ---- Perfil válido (admin | arquivista) ----
+    if (!SGA_API.PERFIS.includes(user.perfil)) {
+      SGA_API.logout().finally(() => window.location.replace('index.html'));
+      return;
+    }
+
     // ---- Dados do usuário na sidebar ----
     document.getElementById('user-name').textContent = user.nome || user.email || 'Usuário';
     document.getElementById('user-role').textContent = user.perfil || '—';
@@ -226,6 +238,7 @@
 
     Modal.init();
     setupSidebar();
+    applyMenuPermissions(user.perfil);
     setupMenu();
     setupTabs();
 
@@ -235,6 +248,7 @@
     // Sair
     document.getElementById('btn-logout').addEventListener('click', async () => {
       if (!confirm('Deseja realmente sair do sistema?')) return;
+      await SGA_API.registrarEvento('LOGOUT');
       await SGA_API.logout();
       window.location.href = 'index.html';
     });
@@ -256,15 +270,32 @@
   }
 
   /* ---------- Menu lateral / navegação de seções ---------- */
-  const SECTION_TITLES = {
-    painel: 'Painel',
-    pesquisa: 'Pesquisa',
-    cadastro: 'Cadastro',
-    emprestimo: 'Empréstimo / Devolução',
-    relatorio: 'Relatórios',
+  // Perfis válidos do sistema: admin e arquivista.
+  // admin: tudo. arquivista: tudo, menos Usuários e Auditoria.
+  const SECOES = {
+    painel:     { titulo: 'Painel',               perfis: ['admin', 'arquivista'] },
+    pesquisa:   { titulo: 'Pesquisa',             perfis: ['admin', 'arquivista'] },
+    cadastro:   { titulo: 'Cadastro',             perfis: ['admin', 'arquivista'] },
+    emprestimo: { titulo: 'Empréstimo / Devolução', perfis: ['admin', 'arquivista'] },
+    relatorio:  { titulo: 'Relatórios',           perfis: ['admin', 'arquivista'] },
+    usuarios:   { titulo: 'Usuários',             perfis: ['admin'] },
+    auditoria:  { titulo: 'Auditoria',            perfis: ['admin'] },
   };
 
   let currentSection = 'painel';
+
+  /** A seção existe e o perfil tem permissão? */
+  function podeAcessar(secao, perfil) {
+    const s = SECOES[secao];
+    return !!s && s.perfis.includes(perfil);
+  }
+
+  /** Remove do menu as seções que o perfil não pode ver. */
+  function applyMenuPermissions(perfil) {
+    document.querySelectorAll('.nav-item[data-section]').forEach(btn => {
+      if (!podeAcessar(btn.dataset.section, perfil)) btn.remove();
+    });
+  }
 
   function setupMenu() {
     document.querySelectorAll('.nav-item[data-section]').forEach(btn => {
@@ -273,6 +304,11 @@
   }
 
   function loadSection(name) {
+    const perfil = (SGA_API.getStoredUser() || {}).perfil;
+    if (!podeAcessar(name, perfil)) {
+      U.toast('Você não tem permissão para acessar esta seção.', 'warning');
+      name = 'painel';
+    }
     currentSection = name;
 
     // Menu ativo
@@ -285,7 +321,7 @@
       s.classList.toggle('active', s.id === `section-${name}`);
     });
 
-    document.getElementById('section-title').textContent = SECTION_TITLES[name] || name;
+    document.getElementById('section-title').textContent = (SECOES[name] || {}).titulo || name;
 
     // Fecha sidebar no mobile
     document.getElementById('sidebar').classList.remove('open');
@@ -302,6 +338,14 @@
         break;
       case 'relatorio':
         initRelatorioOnce();
+        break;
+      case 'usuarios':
+        initUsuariosOnce();
+        loadUsuarios();
+        break;
+      case 'auditoria':
+        initAuditoriaOnce();
+        loadAuditoria(true);
         break;
     }
   }
@@ -957,6 +1001,366 @@
       `Gerado em ${new Date().toLocaleString('pt-BR')}${setorFiltro ? ` — Setor: ${setorFiltro}` : ''}`;
     wrap.innerHTML = html;
     btnPrint.disabled = false;
+  }
+
+  /* ============================================================
+     SEÇÃO: USUÁRIOS (somente admin)
+     ============================================================ */
+  let usuariosInit = false;
+  let usuariosCache = [];
+
+  function initUsuariosOnce() {
+    if (usuariosInit) return;
+    usuariosInit = true;
+    document.getElementById('btn-novo-usuario').addEventListener('click', showNovoUsuario);
+  }
+
+  async function loadUsuarios() {
+    const tbody = document.querySelector('#table-usuarios tbody');
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando…</td></tr>';
+    try {
+      usuariosCache = (await SGA_API.listarUsuarios()) || [];
+      renderUsuarios();
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
+      U.toast(err.message, 'error');
+    }
+  }
+
+  function renderUsuarios() {
+    const tbody = document.querySelector('#table-usuarios tbody');
+    const meuId = (SGA_API.getStoredUser() || {}).id;
+
+    if (!usuariosCache.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum usuário cadastrado</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = usuariosCache.map(u => `
+      <tr>
+        <td><strong>${U.esc(u.nome || '—')}</strong></td>
+        <td>${U.esc(u.email || '—')}</td>
+        <td>${U.esc(u.perfil || '—')}</td>
+        <td>${u.created_at ? U.fmtData(String(u.created_at).slice(0, 10)) : '—'}</td>
+        <td>
+          <div class="table-actions">
+            <button class="btn btn-sm btn-ghost" data-perfil="${U.esc(u.id)}">Perfil</button>
+            <button class="btn btn-sm btn-ghost" data-senha="${U.esc(u.id)}">Senha</button>
+            <button class="btn btn-sm btn-danger" data-excluir="${U.esc(u.id)}"${u.id === meuId ? ' disabled' : ''}>Excluir</button>
+          </div>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('[data-perfil]').forEach(b =>
+      b.addEventListener('click', () => showAlterarPerfil(b.dataset.perfil)));
+    tbody.querySelectorAll('[data-senha]').forEach(b =>
+      b.addEventListener('click', () => showAlterarSenha(b.dataset.senha)));
+    tbody.querySelectorAll('[data-excluir]').forEach(b =>
+      b.addEventListener('click', () => excluirUsuario(b.dataset.excluir)));
+  }
+
+  function showNovoUsuario() {
+    Modal.open('Novo Usuário', `
+      <form id="form-novo-usuario" class="form-stack" novalidate>
+        <div class="form-group">
+          <label for="nu-nome">Nome *</label>
+          <input type="text" id="nu-nome" maxlength="120" placeholder="Nome completo" autocomplete="off">
+          <span class="field-error" id="error-nu-nome" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="nu-email">E-mail *</label>
+          <input type="email" id="nu-email" maxlength="120" placeholder="usuario@empresa.com" autocomplete="off">
+          <span class="field-error" id="error-nu-email" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="nu-senha">Senha *</label>
+          <input type="password" id="nu-senha" maxlength="72" placeholder="Mínimo de 6 caracteres" autocomplete="new-password">
+          <span class="field-error" id="error-nu-senha" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="nu-perfil">Perfil *</label>
+          <select id="nu-perfil">
+            <option value="arquivista">Arquivista</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btn-criar-usuario">Criar usuário</button>
+          <button type="button" class="btn btn-ghost" id="btn-cancelar-usuario">Cancelar</button>
+        </div>
+      </form>`);
+
+    const form = document.getElementById('form-novo-usuario');
+    document.getElementById('btn-cancelar-usuario').addEventListener('click', () => Modal.close());
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      U.clearErrors(form);
+
+      const nome = document.getElementById('nu-nome').value.trim();
+      const email = document.getElementById('nu-email').value.trim();
+      const senha = document.getElementById('nu-senha').value;
+      const perfil = document.getElementById('nu-perfil').value;
+
+      let ok = true;
+      if (!nome) { U.setError('nu-nome', 'Informe o nome.'); ok = false; }
+      if (!email) { U.setError('nu-email', 'Informe o e-mail.'); ok = false; }
+      else if (!U.isEmail(email)) { U.setError('nu-email', 'E-mail inválido.'); ok = false; }
+      if (!senha) { U.setError('nu-senha', 'Informe a senha.'); ok = false; }
+      else if (senha.length < 6) { U.setError('nu-senha', 'Mínimo de 6 caracteres.'); ok = false; }
+      if (!ok) return;
+
+      const btn = document.getElementById('btn-criar-usuario');
+      U.loading(btn, true);
+      try {
+        await SGA_API.criarUsuario({ email, nome, senha, perfil });
+        U.toast(`Usuário ${email} criado!`, 'success');
+        Modal.close();
+        loadUsuarios();
+      } catch (err) {
+        U.toast(err.message, 'error');
+        U.loading(btn, false);
+      }
+    });
+  }
+
+  function showAlterarPerfil(id) {
+    const u = usuariosCache.find(x => x.id === id);
+    if (!u) return;
+    if (u.id === (SGA_API.getStoredUser() || {}).id) {
+      U.toast('Você não pode alterar o próprio perfil.', 'warning');
+      return;
+    }
+
+    Modal.open('Alterar perfil', `
+      <form id="form-perfil-usuario" class="form-stack" novalidate>
+        <div class="form-group">
+          <label for="pu-email">Usuário</label>
+          <input type="text" id="pu-email" value="${U.esc(u.email || '')}" disabled>
+        </div>
+        <div class="form-group">
+          <label for="pu-perfil">Perfil</label>
+          <select id="pu-perfil">
+            <option value="arquivista"${u.perfil === 'arquivista' ? ' selected' : ''}>Arquivista</option>
+            <option value="admin"${u.perfil === 'admin' ? ' selected' : ''}>Administrador</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btn-salvar-perfil">Salvar</button>
+          <button type="button" class="btn btn-ghost" id="btn-cancelar-perfil">Cancelar</button>
+        </div>
+      </form>`);
+
+    const form = document.getElementById('form-perfil-usuario');
+    document.getElementById('btn-cancelar-perfil').addEventListener('click', () => Modal.close());
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-salvar-perfil');
+      U.loading(btn, true);
+      try {
+        await SGA_API.alterarPerfil(u.id, document.getElementById('pu-perfil').value);
+        U.toast('Perfil atualizado!', 'success');
+        Modal.close();
+        loadUsuarios();
+      } catch (err) {
+        U.toast(err.message, 'error');
+        U.loading(btn, false);
+      }
+    });
+  }
+
+  function showAlterarSenha(id) {
+    const u = usuariosCache.find(x => x.id === id);
+    if (!u) return;
+
+    Modal.open('Redefinir senha', `
+      <form id="form-senha-usuario" class="form-stack" novalidate>
+        <div class="form-group">
+          <label for="ps-email">Usuário</label>
+          <input type="text" id="ps-email" value="${U.esc(u.email || '')}" disabled>
+        </div>
+        <div class="form-group">
+          <label for="ps-senha">Nova senha *</label>
+          <input type="password" id="ps-senha" maxlength="72" placeholder="Mínimo de 6 caracteres" autocomplete="new-password">
+          <span class="field-error" id="error-ps-senha" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ps-confirma">Confirmar senha *</label>
+          <input type="password" id="ps-confirma" maxlength="72" placeholder="Repita a nova senha" autocomplete="new-password">
+          <span class="field-error" id="error-ps-confirma" role="alert"></span>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btn-salvar-senha">Salvar senha</button>
+          <button type="button" class="btn btn-ghost" id="btn-cancelar-senha">Cancelar</button>
+        </div>
+      </form>`);
+
+    const form = document.getElementById('form-senha-usuario');
+    document.getElementById('btn-cancelar-senha').addEventListener('click', () => Modal.close());
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      U.clearErrors(form);
+
+      const senha = document.getElementById('ps-senha').value;
+      const confirma = document.getElementById('ps-confirma').value;
+
+      let ok = true;
+      if (!senha) { U.setError('ps-senha', 'Informe a nova senha.'); ok = false; }
+      else if (senha.length < 6) { U.setError('ps-senha', 'Mínimo de 6 caracteres.'); ok = false; }
+      if (senha !== confirma) { U.setError('ps-confirma', 'As senhas não conferem.'); ok = false; }
+      if (!ok) return;
+
+      const btn = document.getElementById('btn-salvar-senha');
+      U.loading(btn, true);
+      try {
+        await SGA_API.alterarSenha(u.id, senha);
+        U.toast('Senha redefinida! As sessões antigas foram encerradas.', 'success');
+        Modal.close();
+      } catch (err) {
+        U.toast(err.message, 'error');
+        U.loading(btn, false);
+      }
+    });
+  }
+
+  async function excluirUsuario(id) {
+    const u = usuariosCache.find(x => x.id === id);
+    if (!u) return;
+    if (!confirm(`Excluir definitivamente ${u.email}? O acesso ao sistema será removido.`)) return;
+    try {
+      await SGA_API.excluirUsuario(id);
+      U.toast('Usuário excluído.', 'success');
+      loadUsuarios();
+    } catch (err) {
+      U.toast(err.message, 'error');
+    }
+  }
+
+  /* ============================================================
+     SEÇÃO: AUDITORIA (somente admin)
+     ============================================================ */
+  let auditoriaInit = false;
+  let auditoriaItens = [];
+  let auditoriaOffset = 0;
+  const AUD_LIMITE = 50;
+
+  function initAuditoriaOnce() {
+    if (auditoriaInit) return;
+    auditoriaInit = true;
+
+    document.getElementById('form-auditoria').addEventListener('submit', e => {
+      e.preventDefault();
+      loadAuditoria(true);
+    });
+
+    document.getElementById('btn-aud-limpar').addEventListener('click', () => {
+      document.getElementById('form-auditoria').reset();
+      loadAuditoria(true);
+    });
+
+    document.getElementById('btn-aud-mais').addEventListener('click', () => loadAuditoria(false));
+  }
+
+  async function fillAuditoriaUsuarios() {
+    try {
+      const users = (await SGA_API.listarUsuarios()) || [];
+      const sel = document.getElementById('aud-usuario');
+      const atual = sel.value;
+      sel.innerHTML = '<option value="">Todos</option>' +
+        users.map(u => `<option value="${U.esc(u.id)}">${U.esc(u.email || u.nome || u.id)}</option>`).join('');
+      if (atual) sel.value = atual;
+    } catch { /* filtro continua funcional com "Todos" */ }
+  }
+
+  async function loadAuditoria(reset = true) {
+    const tbody = document.querySelector('#table-auditoria tbody');
+
+    if (reset) {
+      auditoriaOffset = 0;
+      auditoriaItens = [];
+      document.getElementById('btn-aud-mais').hidden = true;
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Carregando…</td></tr>';
+      await fillAuditoriaUsuarios();
+    }
+
+    try {
+      const r = await SGA_API.listarAuditoria({
+        usuarioId: document.getElementById('aud-usuario').value,
+        tabela: document.getElementById('aud-tabela').value,
+        acao: document.getElementById('aud-acao').value,
+        limite: AUD_LIMITE,
+        offset: auditoriaOffset,
+      });
+
+      auditoriaItens = auditoriaItens.concat(r.itens);
+      auditoriaOffset = auditoriaItens.length;
+      renderAuditoria();
+      document.getElementById('btn-aud-mais').hidden = !r.temMais;
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
+      U.toast(err.message, 'error');
+    }
+  }
+
+  function acaoPill(acao) {
+    const mapa = {
+      INSERT: 'status-disponivel',
+      UPDATE: 'status-descartavel',
+      DELETE: 'status-atrasado',
+      LOGIN: 'status-ativo',
+      LOGOUT: 'status-devolvido',
+    };
+    return `<span class="status ${mapa[acao] || 'status-descartado'}">${U.esc(acao)}</span>`;
+  }
+
+  function renderAuditoria() {
+    const tbody = document.querySelector('#table-auditoria tbody');
+    document.getElementById('aud-count').textContent = auditoriaItens.length;
+
+    if (!auditoriaItens.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Nenhum registro encontrado</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = auditoriaItens.map(a => `
+      <tr>
+        <td>${a.criado_em ? new Date(a.criado_em).toLocaleString('pt-BR') : '—'}</td>
+        <td>${U.esc(a.usuario_email || '—')}</td>
+        <td>${U.esc(a.usuario_perfil || '—')}</td>
+        <td>${U.esc(a.tabela)}</td>
+        <td>${acaoPill(a.acao)}</td>
+        <td>${U.esc(String(a.registro_id || '—').slice(0, 8))}</td>
+        <td><button class="btn btn-sm btn-ghost" data-aud="${U.esc(a.id)}">Detalhes</button></td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('[data-aud]').forEach(b => {
+      b.addEventListener('click', () => {
+        const item = auditoriaItens.find(x => String(x.id) === b.dataset.aud);
+        if (item) showAuditoriaDetalhe(item);
+      });
+    });
+  }
+
+  function showAuditoriaDetalhe(a) {
+    const json = v => v
+      ? `<pre class="aud-json">${U.esc(JSON.stringify(v, null, 2))}</pre>`
+      : '—';
+
+    const rows = [
+      ['Data / Hora', a.criado_em ? new Date(a.criado_em).toLocaleString('pt-BR') : '—'],
+      ['Usuário', U.esc(a.usuario_email || '—')],
+      ['Perfil', U.esc(a.usuario_perfil || '—')],
+      ['Tabela', U.esc(a.tabela)],
+      ['Ação', U.esc(a.acao)],
+      ['Registro', U.esc(a.registro_id || '—')],
+      ['Antes', json(a.dados_antes)],
+      ['Depois', json(a.dados_depois)],
+    ];
+
+    const html = rows.map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+    Modal.open(`Auditoria #${a.id}`, `<dl>${html}</dl>`);
   }
 
   /* ============================================================

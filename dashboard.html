@@ -50,6 +50,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-6"/></svg>
           <span>Relatórios</span>
         </button>
+        <button class="nav-item" data-section="usuarios">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Usuários</span>
+        </button>
+        <button class="nav-item" data-section="auditoria">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+          <span>Auditoria</span>
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -589,6 +597,106 @@
               <span class="rel-meta" id="relatorio-meta"></span>
             </header>
             <div class="panel-body table-wrap" id="relatorio-conteudo"></div>
+          </article>
+        </section>
+
+        <!-- ============ USUÁRIOS (admin) ============ -->
+        <section class="section" id="section-usuarios">
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Usuários do Sistema</h3>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-novo-usuario">Novo Usuário</button>
+            </header>
+            <div class="panel-body table-wrap">
+              <table class="data-table" id="table-usuarios">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Perfil</th>
+                    <th>Criado em</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="5" class="empty-state">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <!-- ============ AUDITORIA (admin) ============ -->
+        <section class="section" id="section-auditoria">
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Filtrar registros</h3>
+            </header>
+            <div class="panel-body">
+              <form id="form-auditoria" class="filters-row" novalidate>
+                <div class="form-group">
+                  <label for="aud-usuario">Usuário</label>
+                  <select id="aud-usuario">
+                    <option value="">Todos</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="aud-tabela">Tabela</label>
+                  <select id="aud-tabela">
+                    <option value="">Todas</option>
+                    <option value="auth">Autenticação</option>
+                    <option value="usuarios">Usuários</option>
+                    <option value="documentos">Documentos</option>
+                    <option value="emprestimos">Empréstimos</option>
+                    <option value="salas">Salas</option>
+                    <option value="estantes">Estantes</option>
+                    <option value="prateleiras">Prateleiras</option>
+                    <option value="caixas">Caixas</option>
+                    <option value="arquivos_digitais">Arquivos digitais</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="aud-acao">Ação</label>
+                  <select id="aud-acao">
+                    <option value="">Todas</option>
+                    <option value="INSERT">Inclusão</option>
+                    <option value="UPDATE">Alteração</option>
+                    <option value="DELETE">Exclusão</option>
+                    <option value="LOGIN">Login</option>
+                    <option value="LOGOUT">Logout</option>
+                  </select>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Filtrar</button>
+                  <button type="button" class="btn btn-ghost" id="btn-aud-limpar">Limpar</button>
+                </div>
+              </form>
+            </div>
+          </article>
+
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Registros <span class="badge" id="aud-count">0</span></h3>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-aud-mais" hidden>Carregar mais</button>
+            </header>
+            <div class="panel-body table-wrap">
+              <table class="data-table" id="table-auditoria">
+                <thead>
+                  <tr>
+                    <th>Data / Hora</th>
+                    <th>Usuário</th>
+                    <th>Perfil</th>
+                    <th>Tabela</th>
+                    <th>Ação</th>
+                    <th>Registro</th>
+                    <th>Detalhes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="7" class="empty-state">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </article>
         </section>
 
