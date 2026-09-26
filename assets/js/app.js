@@ -162,6 +162,15 @@
     const btn = document.getElementById('btn-login');
     const remember = document.getElementById('login-remember');
 
+    // Aviso de sessão encerrada por inatividade (definido no painel)
+    try {
+      if (sessionStorage.getItem('sga_timeout') === '1') {
+        sessionStorage.removeItem('sga_timeout');
+        alertEl.textContent = 'Sessão encerrada por inatividade. Entre novamente.';
+        alertEl.hidden = false;
+      }
+    } catch { /* storage indisponível */ }
+
     // Mostrar/ocultar senha
     const eyeBtn = document.getElementById('btn-toggle-pass');
     eyeBtn.addEventListener('click', () => {
@@ -208,13 +217,13 @@
   /* ============================================================
      PAINEL (dashboard.html)
      ============================================================ */
-  function initApp() {
+  async function initApp() {
     const content = document.getElementById('content');
     if (!content) return; // não é a página do painel
 
     // ---- Guarda de sessão ----
     const session = SGA_API.getSession();
-    const user = SGA_API.getStoredUser();
+    let user = SGA_API.getStoredUser();
     if (!session || !user) {
       window.location.replace('index.html');
       return;
@@ -225,6 +234,18 @@
       SGA_API.logout().finally(() => window.location.replace('index.html'));
       return;
     }
+
+    // ---- SEGURANÇA: revalida perfil no servidor (localStorage é
+    //      editável pelo usuário e não pode ser fonte de autorização) ----
+    try {
+      const atual = await SGA_API.revalidarPerfil();
+      if (atual === false) {
+        await SGA_API.logout();
+        window.location.replace('index.html');
+        return;
+      }
+      if (atual) user = atual;
+    } catch { /* falha de transporte: mantém a sessão */ }
 
     // ---- Dados do usuário na sidebar ----
     document.getElementById('user-name').textContent = user.nome || user.email || 'Usuário';
@@ -252,6 +273,23 @@
       await SGA_API.logout();
       window.location.href = 'index.html';
     });
+
+    // ---- SEGURANÇA: encerra a sessão por inatividade ----
+    // Usa SGA_CONFIG.SESSION_TIMEOUT (antes declarado e nunca aplicado).
+    let ultimoEvento = Date.now();
+    let encerrando = false;
+    const marcarEvento = () => { ultimoEvento = Date.now(); };
+    ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(evt =>
+      document.addEventListener(evt, marcarEvento, { passive: true })
+    );
+    setInterval(async () => {
+      if (encerrando || Date.now() - ultimoEvento < SGA_CONFIG.SESSION_TIMEOUT) return;
+      encerrando = true;
+      try { await SGA_API.registrarEvento('LOGOUT'); } catch { /* ignore */ }
+      await SGA_API.logout();
+      try { sessionStorage.setItem('sga_timeout', '1'); } catch { /* ignore */ }
+      window.location.href = 'index.html';
+    }, 60 * 1000);
   }
 
   /* ---------- Sidebar (mobile) ---------- */

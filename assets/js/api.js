@@ -15,6 +15,20 @@ const SGA_API = (() => {
      Helpers internos
      ---------------------------------------------------------- */
 
+  /**
+   * SEGURANCA: remove os caracteres reservados do PostgREST
+   * ( ' ' viram separador de lista e '(' ')' delimitam expressoes
+   * logicas como or(...) ). O encodeURIComponent NAO escapa '(' e ')',
+   * entao um valor vindo do usuario podia quebrar/alterar a sintaxe
+   * do filtro (injecao PostgREST). Toda montagem de query por
+   * concatenacao deve passar os valores por aqui antes de codificar.
+   */
+  function filtroSeguro(valor) {
+    return String(valor === null || valor === undefined ? '' : valor)
+      .replace(/[(),*]/g, ' ')
+      .trim();
+  }
+
   /** Lê a sessão salva e valida expiração. */
   function getSession() {
     try {
@@ -179,10 +193,43 @@ const SGA_API = (() => {
     if (!authUser || !authUser.id) return null;
     try {
       // silent401: não redireciona nem limpa sessão se falhar
-      const rows = await request('GET', `/rest/v1/usuarios?id=eq.${authUser.id}&select=*`, undefined, { silent401: true });
+      const rows = await request('GET', `/rest/v1/usuarios?id=eq.${encodeURIComponent(filtroSeguro(authUser.id))}&select=*`, undefined, { silent401: true });
       if (rows && rows.length) return rows[0];
     } catch { /* tabela pode não existir ainda */ }
     return null;
+  }
+
+  /**
+   * SEGURANCA: revalida a sessão e o perfil NO SERVIDOR.
+   * O conteúdo de localStorage (sga_user) é editável pelo próprio
+   * usuário, então nunca pode ser a única fonte de autorização.
+   *
+   * Retorno:
+   *  - objeto  -> perfil atualizado (já persistido em localStorage)
+   *  - false   -> acesso revogado (sem linha ou perfil inválido)
+   *  - null    -> falha de transporte/rede (mantém a sessão atual)
+   */
+  async function revalidarPerfil() {
+    const session = getSession();
+    const guardado = getStoredUser();
+    if (!session || !guardado || !guardado.id) return false;
+    try {
+      const rows = await request(
+        'GET',
+        `/rest/v1/usuarios?id=eq.${encodeURIComponent(filtroSeguro(guardado.id))}&select=id,email,nome,perfil`,
+        undefined,
+        { silent401: true }
+      );
+      if (!rows || !rows.length) return false;
+      const atual = rows[0];
+      if (!PERFIS.includes(atual.perfil)) return false;
+      localStorage.setItem(SGA_CONFIG.STORAGE_USER, JSON.stringify(atual));
+      return atual;
+    } catch (err) {
+      // 401/403 = token rejeitado ou RLS negou -> revoga.
+      // Demais erros (rede, 5xx) -> não derruba sessão válida.
+      return /Erro 40[13]/.test((err && err.message) || '') ? false : null;
+    }
   }
 
   /* ----------------------------------------------------------
@@ -193,11 +240,11 @@ const SGA_API = (() => {
   const insert = (table, data) =>
     request('POST', `/rest/v1/${table}`, data, { headers: { Prefer: 'return=representation' } });
   const update = (table, id, data) =>
-    request('PATCH', `/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, data, {
+    request('PATCH', `/rest/v1/${table}?id=eq.${encodeURIComponent(filtroSeguro(id))}`, data, {
       headers: { Prefer: 'return=representation' },
     });
   const remove = (table, id) =>
-    request('DELETE', `/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`);
+    request('DELETE', `/rest/v1/${table}?id=eq.${encodeURIComponent(filtroSeguro(id))}`);
 
   /* ----------------------------------------------------------
      Protocolo: 2026-000001 (ano + sequência de 6 dígitos)
@@ -268,12 +315,12 @@ const SGA_API = (() => {
     const parts = [];
 
     if (filtros.texto) {
-      const t = encodeURIComponent(`%${filtros.texto}%`);
+      const t = encodeURIComponent(`%${filtroSeguro(filtros.texto)}%`);
       parts.push(`or(protocolo.ilike.${t},descricao.ilike.${t},codigo.ilike.${t})`);
     }
-    if (filtros.setor) parts.push(`setor=eq.${encodeURIComponent(filtros.setor)}`);
-    if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtros.status)}`);
-    if (filtros.tipo) parts.push(`tipo.ilike.${encodeURIComponent(`%${filtros.tipo}%`)}`);
+    if (filtros.setor) parts.push(`setor=eq.${encodeURIComponent(filtroSeguro(filtros.setor))}`);
+    if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtroSeguro(filtros.status))}`);
+    if (filtros.tipo) parts.push(`tipo.ilike.${encodeURIComponent(`%${filtroSeguro(filtros.tipo)}%`)}`);
 
     if (parts.length) q = '&' + parts.join('&');
     return request('GET', `/rest/v1/documentos?select=*,caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))${q}&order=created_at.desc`);
@@ -327,9 +374,9 @@ const SGA_API = (() => {
   async function listarAuditoria(f = {}) {
     const limit = f.limite || 50;
     const parts = ['order=criado_em.desc', `limit=${limit + 1}`];
-    if (f.usuarioId) parts.push(`usuario_id=eq.${encodeURIComponent(f.usuarioId)}`);
-    if (f.tabela) parts.push(`tabela=eq.${encodeURIComponent(f.tabela)}`);
-    if (f.acao) parts.push(`acao=eq.${encodeURIComponent(f.acao)}`);
+    if (f.usuarioId) parts.push(`usuario_id=eq.${encodeURIComponent(filtroSeguro(f.usuarioId))}`);
+    if (f.tabela) parts.push(`tabela=eq.${encodeURIComponent(filtroSeguro(f.tabela))}`);
+    if (f.acao) parts.push(`acao=eq.${encodeURIComponent(filtroSeguro(f.acao))}`);
     if (f.offset) parts.push(`offset=${f.offset}`);
 
     const rows = await request('GET', `/rest/v1/auditoria?select=*&${parts.join('&')}`);
@@ -342,6 +389,7 @@ const SGA_API = (() => {
     login,
     logout,
     getStoredUser,
+    revalidarPerfil,
     PERFIS,
     list,
     insert,
