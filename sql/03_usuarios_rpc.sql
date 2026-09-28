@@ -14,6 +14,9 @@
 
 -- ------------------------------------------------------------
 -- Hash de senha compativel com o Supabase Auth (bcrypt via pgcrypto)
+-- P6: custo 12 (gen_salt('bf', 12)) em vez do padrao ~6 - torna cada
+-- brute force ~4096x mais caro. Vale para senhas NOVAS/REDEFINIDAS;
+-- hashes antigos so migram quando a senha for redefinida.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.sga_hash_senha(p_senha text)
 RETURNS text
@@ -23,15 +26,18 @@ DECLARE
   v_hash text;
 BEGIN
   IF to_regprocedure('extensions.crypt(text,text)') IS NOT NULL THEN
-    EXECUTE 'SELECT extensions.crypt($1, extensions.gen_salt(''bf''))' INTO v_hash USING p_senha;
+    EXECUTE 'SELECT extensions.crypt($1, extensions.gen_salt(''bf'', 12))' INTO v_hash USING p_senha;
   ELSIF to_regprocedure('public.crypt(text,text)') IS NOT NULL THEN
-    EXECUTE 'SELECT public.crypt($1, public.gen_salt(''bf''))' INTO v_hash USING p_senha;
+    EXECUTE 'SELECT public.crypt($1, public.gen_salt(''bf'', 12))' INTO v_hash USING p_senha;
   ELSE
     RAISE EXCEPTION 'pgcrypto indisponivel. Ative a extensao pgcrypto no projeto.';
   END IF;
   RETURN v_hash;
 END;
 $$;
+
+-- VERIFICACAO (P6): deve devolver um hash iniciando com $2a$12$ (custo 12)
+-- SELECT public.sga_hash_senha('teste123');
 
 -- ------------------------------------------------------------
 -- Cria usuario: conta em auth.users + linha em public.usuarios
