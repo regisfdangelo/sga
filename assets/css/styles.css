@@ -175,8 +175,8 @@ a { color: var(--primary); }
   min-height: 1em;
 }
 
-/* No login, erro vazio nao ocupa linha - o card precisa ficar quadrado */
-.login-form .field-error:empty { display: none; }
+/* Erro vazio nao ocupa linha - campos mais compactos (telas 14") */
+.field-error:empty { display: none; }
 
 .checkbox-label {
   display: flex !important;
@@ -192,9 +192,14 @@ a { color: var(--primary); }
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 1rem 1.25rem;
+  gap: .85rem 1.1rem;
 }
 .form-grid .span-2 { grid-column: span 2; }
+
+/* Cadastro de documento em 3 colunas: todos os campos cabem em
+   telas de 14" (1366x768) sem rolagem. span-2 vira linha cheia. */
+.form-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.form-grid-3 .span-2 { grid-column: 1 / -1; }
 
 .form-stack { display: flex; flex-direction: column; gap: .9rem; }
 

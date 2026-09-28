@@ -496,14 +496,13 @@
     const tbody = document.querySelector('#table-pesquisa tbody');
 
     if (!docs.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nenhum documento encontrado</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Nenhum documento encontrado</td></tr>';
       return;
     }
 
     tbody.innerHTML = docs.map(d => `
       <tr>
         <td><strong>${U.esc(d.protocolo)}</strong></td>
-        <td>${U.esc(d.codigo || '—')}</td>
         <td>${U.esc(d.descricao)}</td>
         <td>${U.esc(d.tipo)}</td>
         <td>${U.esc(d.setor)}</td>
@@ -527,7 +526,6 @@
   function showDocDetails(d) {
     const rows = [
       ['Protocolo', `<strong>${U.esc(d.protocolo)}</strong>`],
-      ['Código', U.esc(d.codigo || '—')],
       ['Descrição', U.esc(d.descricao)],
       ['Tipo', U.esc(d.tipo)],
       ['Setor', U.esc(d.setor)],
@@ -579,7 +577,6 @@
 
         await SGA_API.insert('documentos', {
           protocolo: currentProtocolo,
-          codigo: document.getElementById('doc-codigo').value.trim() || null,
           descricao,
           tipo,
           setor,
@@ -928,7 +925,8 @@
     btnPrint.disabled = true;
 
     const [docs, emps] = await Promise.all([
-      SGA_API.list('documentos', '&order=protocolo', 'protocolo,codigo,descricao,tipo,setor,status,prazo_guarda'),
+      SGA_API.list('documentos', '&order=protocolo',
+        'protocolo,descricao,tipo,setor,status,prazo_guarda,caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))'),
       SGA_API.list('emprestimos', '&order=data_emprestimo.desc',
         'doc_protocolo,solicitante_nome,data_emprestimo,data_devolucao_prevista,data_devolucao_real,status'),
     ]);
@@ -952,7 +950,7 @@
             ? documentos.map(d => tdRow([
                 `<strong>${U.esc(d.protocolo)}</strong>`,
                 U.esc(d.descricao), U.esc(d.tipo), U.esc(d.setor),
-                U.pill(d.status), U.esc(d.codigo || '—'),
+                U.pill(d.status), U.esc(U.locLabel(d.caixas)),
               ])).join('')
             : '<tr><td colspan="6" class="empty-state">Sem dados</td></tr>') +
           '</tbody></table>';

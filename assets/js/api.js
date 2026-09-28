@@ -325,14 +325,14 @@ const SGA_API = (() => {
 
     if (filtros.texto) {
       const t = encodeURIComponent(`%${filtroSeguro(filtros.texto)}%`);
-      parts.push(`or(protocolo.ilike.${t},descricao.ilike.${t},codigo.ilike.${t})`);
+      parts.push(`or(protocolo.ilike.${t},descricao.ilike.${t})`);
     }
     if (filtros.setor) parts.push(`setor=eq.${encodeURIComponent(filtroSeguro(filtros.setor))}`);
     if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtroSeguro(filtros.status))}`);
     if (filtros.tipo) parts.push(`tipo.ilike.${encodeURIComponent(`%${filtroSeguro(filtros.tipo)}%`)}`);
 
     if (parts.length) q = '&' + parts.join('&');
-    const cols = 'id,protocolo,codigo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,status,observacoes,'
+    const cols = 'id,protocolo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,status,observacoes,'
       + 'caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))';
     return request('GET', `/rest/v1/documentos?select=${cols}${q}&order=created_at.desc`);
   }
