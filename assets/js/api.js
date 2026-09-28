@@ -194,7 +194,7 @@ const SGA_API = (() => {
     if (!authUser || !authUser.id) return null;
     try {
       // silent401: não redireciona nem limpa sessão se falhar
-      const rows = await request('GET', `/rest/v1/usuarios?id=eq.${encodeURIComponent(filtroSeguro(authUser.id))}&select=*`, undefined, { silent401: true });
+      const rows = await request('GET', `/rest/v1/usuarios?id=eq.${encodeURIComponent(filtroSeguro(authUser.id))}&select=id,email,nome,perfil`, undefined, { silent401: true });
       if (rows && rows.length) return rows[0];
     } catch { /* tabela pode não existir ainda */ }
     return null;
@@ -237,7 +237,14 @@ const SGA_API = (() => {
      CRUD genérico
      ---------------------------------------------------------- */
 
-  const list = (table, query = '') => request('GET', `/rest/v1/${table}?select=*${query}`);
+  /**
+   * P8 — consulta menos expostiva: o 3º parâmetro declara as colunas
+   * que a tela realmente usa (em vez de `select=*`). `query` mantém
+   * filtros/order/limit. O select é literal do código (nunca input
+   * do usuário), por isso não é codificado.
+   */
+  const list = (table, query = '', select = '*') =>
+    request('GET', `/rest/v1/${table}?select=${select}${query}`);
   const insert = (table, data) =>
     request('POST', `/rest/v1/${table}`, data, { headers: { Prefer: 'return=representation' } });
   const update = (table, id, data) =>
@@ -283,8 +290,9 @@ const SGA_API = (() => {
 
   async function getMetricas() {
     const [docs, emps] = await Promise.all([
-      list('documentos'),
-      list('emprestimos'),
+      // só as colunas consumidas pelo painel (métricas + tabelas resumo)
+      list('documentos', '', 'protocolo,descricao,setor,status,prazo_guarda,created_at'),
+      list('emprestimos', '', 'documento_id,doc_protocolo,solicitante_nome,status,data_devolucao_prevista'),
     ]);
 
     const hoje = new Date().toISOString().slice(0, 10);
@@ -324,14 +332,17 @@ const SGA_API = (() => {
     if (filtros.tipo) parts.push(`tipo.ilike.${encodeURIComponent(`%${filtroSeguro(filtros.tipo)}%`)}`);
 
     if (parts.length) q = '&' + parts.join('&');
-    return request('GET', `/rest/v1/documentos?select=*,caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))${q}&order=created_at.desc`);
+    const cols = 'id,protocolo,codigo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,status,observacoes,'
+      + 'caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))';
+    return request('GET', `/rest/v1/documentos?select=${cols}${q}&order=created_at.desc`);
   }
 
   /* ----------------------------------------------------------
      Gestão de usuários (somente administrador - validado na RPC/RLS)
      ---------------------------------------------------------- */
 
-  const listarUsuarios = () => list('usuarios', '&order=email');
+  const listarUsuarios = () =>
+    list('usuarios', '&order=email&limit=500', 'id,email,nome,perfil,created_at');
 
   const criarUsuario = ({ email, nome, senha, perfil }) =>
     request('POST', '/rest/v1/rpc/criar_usuario', {
@@ -387,7 +398,10 @@ const SGA_API = (() => {
     if (f.acao) parts.push(`acao=eq.${encodeURIComponent(filtroSeguro(f.acao))}`);
     if (f.offset) parts.push(`offset=${f.offset}`);
 
-    const rows = await request('GET', `/rest/v1/auditoria?select=*&${parts.join('&')}`);
+    const rows = await request(
+      'GET',
+      `/rest/v1/auditoria?select=id,criado_em,usuario_email,usuario_perfil,tabela,acao,registro_id,dados_antes,dados_depois&${parts.join('&')}`
+    );
     const itens = rows || [];
     return { itens: itens.slice(0, limit), temMais: itens.length > limit };
   }

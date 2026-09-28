@@ -705,9 +705,9 @@
   async function loadLocalSelects() {
     try {
       const [salas, estantes, prat] = await Promise.all([
-        SGA_API.list('salas', '&order=codigo'),
-        SGA_API.list('estantes', '&order=codigo'),
-        SGA_API.list('prateleiras', '&order=codigo'),
+        SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao'),
+        SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao'),
+        SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao'),
       ]);
 
       fillSelect('estante-sala', salas, 'Selecione a sala…');
@@ -734,7 +734,7 @@
 
   async function loadCaixasNoSelect() {
     try {
-      const caixas = await SGA_API.list('caixas', '&order=codigo');
+      const caixas = await SGA_API.list('caixas', '&order=codigo&limit=500', 'id,codigo,descricao');
       fillSelect('doc-caixa', caixas, 'Selecione a caixa…');
     } catch { /* ignore */ }
   }
@@ -743,7 +743,8 @@
     try {
       const caixas = await SGA_API.list(
         'caixas',
-        '&select=*,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)&order=codigo'
+        '&order=codigo&limit=500',
+        'id,codigo,capacidade,descricao,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)'
       );
       const tbody = document.querySelector('#table-caixas tbody');
       if (!caixas || !caixas.length) {
@@ -829,8 +830,9 @@
   async function loadEmprestimoData() {
     try {
       const [docs, emps] = await Promise.all([
-        SGA_API.list('documentos', '&status=eq.disponivel&order=protocolo'),
-        SGA_API.list('emprestimos', '&status=eq.ativo&order=data_devolucao_prevista'),
+        SGA_API.list('documentos', '&status=eq.disponivel&order=protocolo', 'id,protocolo,descricao'),
+        SGA_API.list('emprestimos', '&status=eq.ativo&order=data_devolucao_prevista',
+          'id,documento_id,doc_protocolo,solicitante_nome,data_emprestimo,data_devolucao_prevista,status'),
       ]);
 
       docsDisponiveis = docs || [];
@@ -926,8 +928,9 @@
     btnPrint.disabled = true;
 
     const [docs, emps] = await Promise.all([
-      SGA_API.list('documentos', '&order=protocolo'),
-      SGA_API.list('emprestimos', '&order=data_emprestimo.desc'),
+      SGA_API.list('documentos', '&order=protocolo', 'protocolo,codigo,descricao,tipo,setor,status,prazo_guarda'),
+      SGA_API.list('emprestimos', '&order=data_emprestimo.desc',
+        'doc_protocolo,solicitante_nome,data_emprestimo,data_devolucao_prevista,data_devolucao_real,status'),
     ]);
 
     let documentos = docs || [];
