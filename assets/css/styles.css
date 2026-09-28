@@ -69,25 +69,22 @@ a { color: var(--primary); }
 
 .login-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 480px;
+  /* Card quadrado: altura = largura; min-height evita corte de
+     conteudo (alerta de erro) - nesse caso cresce um pouco. */
+  aspect-ratio: 1 / 1;
+  min-height: fit-content;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   background: var(--card);
   border-radius: 16px;
   box-shadow: var(--shadow-lg);
-  padding: 2.5rem 2rem 2rem;
+  padding: 2rem 2rem 1.75rem;
   animation: fadeUp .5s ease both;
 }
 
-.login-header { text-align: center; margin-bottom: 2rem; }
-
-.login-logo {
-  width: 64px; height: 64px;
-  margin: 0 auto .75rem;
-  color: var(--primary);
-  background: var(--info-bg);
-  border-radius: 16px;
-  display: grid; place-items: center;
-  padding: 10px;
-}
+.login-header { text-align: center; margin-bottom: 1.5rem; }
 
 .login-header h1 {
   font-size: 1.75rem;
@@ -177,6 +174,9 @@ a { color: var(--primary); }
   color: var(--danger);
   min-height: 1em;
 }
+
+/* No login, erro vazio nao ocupa linha - o card precisa ficar quadrado */
+.login-form .field-error:empty { display: none; }
 
 .checkbox-label {
   display: flex !important;
