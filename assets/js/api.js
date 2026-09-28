@@ -133,11 +133,12 @@ const SGA_API = (() => {
         const err = await res.json();
         msg = err.error_description || err.msg || err.message || msg;
       } catch { /* ignore */ }
-      // Mensagens amigáveis em português
-      if (/invalid login credentials/i.test(msg)) {
+      // SEGURANÇA (anti-enumeração, item 10 / P5): TODA falha de
+      // credencial devolve a MESMA mensagem genérica. Mensagens
+      // distintas ("e-mail não confirmado", "usuário inexistente")
+      // confirmariam que a conta existe e permitiriam enumeração.
+      if (/invalid login credentials|email not confirmed/i.test(msg)) {
         msg = 'E-mail ou senha incorretos.';
-      } else if (/email not confirmed/i.test(msg)) {
-        msg = 'E-mail ainda não confirmado. Verifique sua caixa de entrada.';
       }
       throw new Error(msg);
     }
