@@ -337,7 +337,14 @@ const SGA_API = (() => {
       p_email: email, p_nome: nome, p_senha: senha, p_perfil: perfil,
     });
 
-  const alterarPerfil = (id, perfil) => update('usuarios', id, { perfil });
+  /**
+   * SEGURANÇA: vai para a RPC alterar_perfil (sql/06_alterar_perfil.sql),
+   * que valida admin, impede alterar o próprio perfil e mantém sempre
+   * >= 1 administrador. Um UPDATE direto seria contornável pela RLS de
+   * admin e permitiria rebaixar o último administrador (lockout).
+   */
+  const alterarPerfil = (id, perfil) =>
+    request('POST', '/rest/v1/rpc/alterar_perfil', { p_id: id, p_perfil: perfil });
 
   const alterarSenha = (id, senha) =>
     request('POST', '/rest/v1/rpc/alterar_senha', { p_id: id, p_senha: senha });
