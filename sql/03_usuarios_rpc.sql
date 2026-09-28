@@ -56,6 +56,7 @@ DECLARE
   v_nome   text := nullif(trim(COALESCE(p_nome, '')), '');
   v_perfil text := lower(trim(COALESCE(p_perfil, '')));
   v_hash   text;
+  v_col    text;
 BEGIN
   -- 1) Somente administrador
   IF COALESCE(public.sga_perfil(), '') <> 'admin' THEN
@@ -93,6 +94,27 @@ BEGIN
     jsonb_build_object('nome', v_nome),
     now(), now()
   );
+
+  -- 3.5) Colunas de token do auth.users NUNCA podem ficar NULL.
+  -- Insercao via SQL (esta RPC) deixa NULL, mas o GoTrue escaneia
+  -- essas colunas como string no login e retorna HTTP 500
+  -- "Database error querying schema" (docs oficiais do Supabase:
+  -- Auth error 500 - o Auth server espera '' e nao NULL quando o
+  -- usuario e criado fora da API). O proprio GoTrue grava ''.
+  -- Somente colunas que existirem no schema e somente NULL -> '';
+  -- valores reais nunca sao sobrescritos.
+  FOR v_col IN
+    SELECT c.column_name
+      FROM information_schema.columns c
+     WHERE c.table_schema = 'auth'
+       AND c.table_name = 'users'
+       AND (c.column_name LIKE '%\_token%'
+            OR c.column_name IN ('email_change', 'phone_change'))
+  LOOP
+    EXECUTE format('UPDATE auth.users SET %I = %L WHERE id = $1 AND %I IS NULL',
+                   v_col, '', v_col)
+      USING v_id;
+  END LOOP;
 
   -- 4) Identidade de login (exigida por algumas versoes do Auth)
   BEGIN
