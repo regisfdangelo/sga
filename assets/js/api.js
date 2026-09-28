@@ -351,21 +351,21 @@ const SGA_API = (() => {
 
   /**
    * Registra um evento de autenticação (LOGIN/LOGOUT).
+   * SEGURANÇA: o cliente envia SOMENTE a ação. usuario_id,
+   * usuario_email e usuario_perfil são preenchidos NO SERVIDOR
+   * pela RPC registrar_evento_auth (a partir de auth.uid() +
+   * public.usuarios) — impossível forjar um LOGIN com identidade
+   * falsa (sql/05_auditoria_auth.sql; o INSERT direto em
+   * public.auditoria está revogado).
    * Nunca lança erro: auditoria não pode quebrar o fluxo principal.
    */
   async function registrarEvento(acao) {
     try {
-      const user = getStoredUser();
-      if (!user || !user.id) return;
-      await request('POST', '/rest/v1/auditoria', {
-        usuario_id: user.id,
-        usuario_email: user.email || null,
-        usuario_perfil: user.perfil || null,
-        tabela: 'auth',
-        acao,
-        registro_id: user.id,
-        dados_antes: null,
-        dados_depois: null,
+      const acaoSegura = String(acao || '').toUpperCase();
+      if (acaoSegura !== 'LOGIN' && acaoSegura !== 'LOGOUT') return;
+      if (!getSession()) return;
+      await request('POST', '/rest/v1/rpc/registrar_evento_auth', {
+        p_acao: acaoSegura,
       }, { silent401: true });
     } catch { /* silencioso por design */ }
   }

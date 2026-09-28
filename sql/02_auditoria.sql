@@ -6,6 +6,11 @@
 -- Onde executar: Supabase Dashboard > SQL Editor > New query > Run.
 -- Pode ser executado mais de uma vez (idempotente).
 -- Ordem: 01_perfis.sql -> 02_auditoria.sql -> 03_usuarios_rpc.sql
+--
+-- ⚠️ ATENCAO: DEPOIS que o 05_auditoria_auth.sql for executado,
+--    NAO reexecute este arquivo sem rodar o 05 em seguida: aqui o
+--    INSERT em auditoria e concedido de volta e a policy antiga
+--    (usuario_email/usuario_perfil vindos do cliente) e recriada.
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -109,6 +114,9 @@ END $$;
 -- INSERT: somente o evento de LOGIN/LOGOUT do proprio usuario
 --         (o front registra a autenticacao; o Auth nao dispara
 --         trigger em tabela publica). UPDATE/DELETE: nenhum.
+-- Obs.: a partir do 05_auditoria_auth.sql este INSERT e revogado
+--       e os eventos passam pela RPC registrar_evento_auth, que
+--       preenche e-mail/perfil no servidor (nao forjaveis).
 -- ------------------------------------------------------------
 ALTER TABLE public.auditoria ENABLE ROW LEVEL SECURITY;
 
