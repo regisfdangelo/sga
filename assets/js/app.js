@@ -544,7 +544,6 @@
      SEÇÃO: CADASTRO
      ============================================================ */
   let cadastroInit = false;
-  let currentProtocolo = null;
 
   function initCadastroOnce() {
     if (cadastroInit) return;
@@ -573,24 +572,38 @@
       U.loading(btn, true);
 
       try {
-        if (!currentProtocolo) currentProtocolo = await SGA_API.gerarProtocolo();
+        // O protocolo é reservado NO BANCO e somente no momento do
+        // salvamento. Gerar na abertura da tela deixava uma janela
+        // longa entre gerar e inserir (corrida -> número repetido /
+        // sequência fora de ordem).
+        let protocoloSalvo = null;
+        for (let tentativa = 0; tentativa < 3 && !protocoloSalvo; tentativa++) {
+          const protocolo = await SGA_API.gerarProtocolo();
+          try {
+            await SGA_API.insert('documentos', {
+              protocolo,
+              descricao,
+              tipo,
+              setor,
+              categoria: document.getElementById('doc-categoria').value || null,
+              data_documento: document.getElementById('doc-data').value || null,
+              prazo_guarda: document.getElementById('doc-prazo').value || null,
+              caixa_id: document.getElementById('doc-caixa').value || null,
+              observacoes: document.getElementById('doc-observacoes').value.trim() || null,
+              status: 'disponivel',
+            });
+            protocoloSalvo = protocolo;
+          } catch (err) {
+            // 23505 = unique_violation: outro usuário pegou o mesmo número
+            if (err.code !== '23505') throw err;
+          }
+        }
+        if (!protocoloSalvo) {
+          throw new Error('Não foi possível reservar um protocolo único. Tente novamente.');
+        }
 
-        await SGA_API.insert('documentos', {
-          protocolo: currentProtocolo,
-          descricao,
-          tipo,
-          setor,
-          categoria: document.getElementById('doc-categoria').value || null,
-          data_documento: document.getElementById('doc-data').value || null,
-          prazo_guarda: document.getElementById('doc-prazo').value || null,
-          caixa_id: document.getElementById('doc-caixa').value || null,
-          observacoes: document.getElementById('doc-observacoes').value.trim() || null,
-          status: 'disponivel',
-        });
-
-        U.toast(`Documento ${currentProtocolo} cadastrado com sucesso!`, 'success');
+        U.toast(`Documento ${protocoloSalvo} cadastrado com sucesso!`, 'success');
         formDoc.reset();
-        currentProtocolo = null;
         refreshProtocolo();
         loadCaixasNoSelect();
       } catch (err) {
@@ -668,11 +681,13 @@
   }
 
   async function refreshProtocolo() {
+    const preview = document.getElementById('protocolo-preview');
     try {
-      currentProtocolo = await SGA_API.gerarProtocolo();
-      document.getElementById('protocolo-preview').textContent = `Protocolo: ${currentProtocolo}`;
+      // Apenas EXIBE o próximo número; quem reserva é o submit.
+      const p = await SGA_API.proximoProtocolo();
+      preview.textContent = p ? `Protocolo: ${p}` : 'Protocolo: gerado ao salvar';
     } catch {
-      document.getElementById('protocolo-preview').textContent = 'Protocolo: —';
+      preview.textContent = 'Protocolo: gerado ao salvar';
     }
   }
 

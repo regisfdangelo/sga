@@ -92,11 +92,11 @@ const SGA_API = (() => {
     });
 
     if (!res.ok) {
-      let detail = '';
+      let body = null;
       try {
-        const err = await res.json();
-        detail = err.message || err.error_description || err.error || '';
+        body = await res.json();
       } catch { /* corpo não-JSON */ }
+      const detail = body && (body.message || body.error_description || body.error || '');
 
       // Sessão expirada / inválida
       if (res.status === 401) {
@@ -105,7 +105,11 @@ const SGA_API = (() => {
           window.location.href = 'index.html';
         }
       }
-      throw new Error(detail || `Erro ${res.status}: ${res.statusText}`);
+      const erro = new Error(detail || `Erro ${res.status}: ${res.statusText}`);
+      // PostgREST expõe o código SQL (ex.: 23505 = unique_violation)
+      erro.status = res.status;
+      erro.code = (body && body.code) || '';
+      throw erro;
     }
 
     if (res.status === 204) return null;
@@ -256,31 +260,26 @@ const SGA_API = (() => {
 
   /* ----------------------------------------------------------
      Protocolo: 2026-000001 (ano + sequência de 6 dígitos)
-     Tenta a função RPC primeiro; senão calcula no cliente.
+     Números são reservados SOMENTE pelo banco (SQL atômico,
+     ver sql/09_gerar_protocolo.sql). Não há MAX+1 no cliente:
+     era essa leitura concorrente que gerava número repetido
+     e sequência fora de ordem.
      ---------------------------------------------------------- */
   async function gerarProtocolo() {
-    // 1) Função SQL (ideal - atômica no banco)
-    try {
-      const r = await request('POST', '/rest/v1/rpc/gerar_protocolo', {});
-      if (r && /^\d{4}-\d{6}$/.test(String(r))) return r;
-    } catch { /* função ainda não criada - fallback abaixo */ }
+    const r = await request('POST', '/rest/v1/rpc/gerar_protocolo', {});
+    if (!r || !/^\d{4}-\d{6}$/.test(String(r))) {
+      throw new Error('RPC gerar_protocolo ausente. Execute sql/09_gerar_protocolo.sql no banco.');
+    }
+    return String(r);
+  }
 
-    // 2) Fallback: lê o maior protocolo do ano corrente e incrementa
-    const ano = new Date().getFullYear();
+  /** Próximo número do ano — apenas para exibição, NÃO consome a sequência. */
+  async function proximoProtocolo() {
     try {
-      const rows = await request(
-        'GET',
-        `/rest/v1/documentos?protocolo=like.${ano}-*&select=protocolo&order=protocolo.desc&limit=1`
-      );
-      let seq = 1;
-      if (rows && rows.length) {
-        const partes = String(rows[0].protocolo).split('-');
-        seq = (parseInt(partes[1], 10) || 0) + 1;
-      }
-      return `${ano}-${String(seq).padStart(6, '0')}`;
+      const r = await request('POST', '/rest/v1/rpc/proximo_protocolo', {});
+      return r && /^\d{4}-\d{6}$/.test(String(r)) ? String(r) : null;
     } catch {
-      // Sem acesso ainda - devolve sequência mínima
-      return `${ano}-000001`;
+      return null;
     }
   }
 
@@ -418,6 +417,7 @@ const SGA_API = (() => {
     update,
     remove,
     gerarProtocolo,
+    proximoProtocolo,
     getMetricas,
     searchDocumentos,
     listarUsuarios,
