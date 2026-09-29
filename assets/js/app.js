@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.18';
+  const VERSAO_APP = '20260929.20';
 
   /* ============================================================
      UTILITÁRIOS
@@ -318,6 +318,7 @@
     pesquisa:   { titulo: 'Pesquisa',             perfis: ['admin', 'arquivista'] },
     cadastro:   { titulo: 'Cadastro',             perfis: ['admin', 'arquivista'] },
     emprestimo: { titulo: 'Empréstimo / Devolução', perfis: ['admin', 'arquivista'] },
+    temporalidade: { titulo: 'Temporalidade',      perfis: ['admin', 'arquivista'] },
     relatorio:  { titulo: 'Relatórios',           perfis: ['admin', 'arquivista'] },
     usuarios:   { titulo: 'Usuários',             perfis: ['admin'] },
     auditoria:  { titulo: 'Auditoria',            perfis: ['admin'] },
@@ -376,6 +377,9 @@
       case 'emprestimo':
         initEmprestimoOnce();
         loadEmprestimoData();
+        break;
+      case 'temporalidade':
+        loadTemporalidade();
         break;
       case 'relatorio':
         initRelatorioOnce();
@@ -1387,6 +1391,66 @@
       `Gerado em ${new Date().toLocaleString('pt-BR')}${setorFiltro ? ` — Setor: ${setorFiltro}` : ''}`;
     wrap.innerHTML = html;
     btnPrint.disabled = false;
+  }
+
+  /* ============================================================
+     SEÇÃO: TEMPORALIDADE — somente documentos VENCIDOS e os que
+     vencem em até 15 dias
+     ============================================================ */
+  const JANELA_VENCIMENTO_DIAS = 15;
+
+  async function loadTemporalidade() {
+    const tbody = document.querySelector('#table-temporalidade tbody');
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando…</td></tr>';
+
+    try {
+      const docs = await SGA_API.list(
+        'documentos',
+        '&order=prazo_guarda.asc&limit=2000',
+        'id,protocolo,descricao,setor,prazo_guarda,status'
+      );
+
+      const hoje = U.hoje();
+      const limite = new Date(Date.now() + JANELA_VENCIMENTO_DIAS * 86400000)
+        .toISOString().slice(0, 10);
+
+      // Vencidos (prazo <= hoje) + os que vencem em até 15 dias
+      const lista = (docs || [])
+        .filter(d => d.prazo_guarda && d.status !== 'descartado' && d.prazo_guarda <= limite)
+        .sort((a, b) => a.prazo_guarda.localeCompare(b.prazo_guarda));
+
+      document.getElementById('temp-count').textContent = lista.length;
+
+      if (!lista.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum documento vencido ou a vencer em até 15 dias</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = lista.map(d => {
+        const dias = Math.round(
+          (Date.parse(d.prazo_guarda) - Date.parse(hoje)) / 86400000
+        );
+        let situacao;
+        if (dias < 0) {
+          situacao = '<span class="status status-atrasado">Vencido</span>';
+        } else if (dias === 0) {
+          situacao = '<span class="status status-emprestado">Vence hoje</span>';
+        } else {
+          situacao = `<span class="status status-emprestado">Vence em ${dias} dia${dias > 1 ? 's' : ''}</span>`;
+        }
+        return `
+        <tr>
+          <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
+          <td><span class="cell-desc" title="${U.esc(d.descricao)}">${U.esc(d.descricao)}</span></td>
+          <td>${U.esc(d.setor)}</td>
+          <td class="cell-protocolo">${U.fmtData(d.prazo_guarda)}</td>
+          <td>${situacao}</td>
+        </tr>`;
+      }).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
+      U.toast(err.message, 'error');
+    }
   }
 
   /* ============================================================
