@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20260929.3';
+  const versao = '20260929.7';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -344,7 +344,7 @@ const SGA_API = (() => {
     if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtroSeguro(filtros.status))}`);
 
     const q = parts.length ? '&' + parts.join('&') : '';
-    const cols = 'id,protocolo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,status,observacoes,'
+    const cols = 'id,protocolo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,caixa_id,status,observacoes,'
       + 'caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))';
     return request('GET', `/rest/v1/documentos?select=${cols}${q}&order=created_at.desc`);
   }

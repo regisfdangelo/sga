@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.3';
+  const VERSAO_APP = '20260929.7';
 
   /* ============================================================
      UTILITÁRIOS
@@ -523,15 +523,16 @@
 
     tbody.innerHTML = docs.map(d => `
       <tr>
-        <td><strong>${U.esc(d.protocolo)}</strong></td>
+        <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
         <td>${U.esc(d.descricao)}</td>
         <td>${U.esc(d.tipo)}</td>
         <td>${U.esc(d.setor)}</td>
         <td>${U.pill(d.status)}</td>
-        <td>${U.esc(U.locLabel(d.caixas))}</td>
+        <td class="cell-local">${U.esc(U.locLabel(d.caixas))}</td>
         <td>
           <div class="table-actions">
             <button class="btn btn-sm btn-ghost" data-view="${U.esc(d.id)}">Detalhes</button>
+            <button class="btn btn-sm btn-ghost" data-editar="${U.esc(d.id)}">Editar</button>
           </div>
         </td>
       </tr>`).join('');
@@ -540,6 +541,13 @@
       btn.addEventListener('click', () => {
         const doc = docs.find(x => x.id === btn.dataset.view);
         if (doc) showDocDetails(doc);
+      });
+    });
+
+    tbody.querySelectorAll('[data-editar]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const doc = docs.find(x => x.id === btn.dataset.editar);
+        if (doc) abrirEdicaoDocumento(doc);
       });
     });
   }
@@ -559,6 +567,134 @@
     ];
     const html = rows.map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
     Modal.open(`Documento ${d.protocolo}`, `<dl>${html}</dl>`);
+  }
+
+  /* ---- Edição do documento (modal, a partir da aba Pesquisa) ---- */
+  async function abrirEdicaoDocumento(d) {
+    // opções de setor/categoria reutilizadas do formulário de cadastro
+    const elSetor = document.getElementById('doc-setor');
+    const elCategoria = document.getElementById('doc-categoria');
+    const opsSetor = elSetor ? elSetor.innerHTML : '';
+    const opsCategoria = elCategoria ? elCategoria.innerHTML : '';
+
+    let caixas = [];
+    try {
+      caixas = await SGA_API.list('caixas', '&order=codigo&limit=500', 'id,codigo,descricao');
+    } catch { /* mantém lista vazia */ }
+    const opsCaixa = (caixas || [])
+      .map(c => `<option value="${U.esc(c.id)}">${U.esc(c.codigo)}${c.descricao ? ' — ' + U.esc(c.descricao) : ''}</option>`)
+      .join('');
+
+    Modal.open(`Editar documento ${d.protocolo}`, `
+      <form id="form-editar-doc" class="form-stack" novalidate>
+        <div class="form-group">
+          <label for="ed-protocolo">Protocolo</label>
+          <input type="text" id="ed-protocolo" value="${U.esc(d.protocolo)}" disabled>
+        </div>
+        <div class="form-group">
+          <label for="ed-descricao">Descrição *</label>
+          <textarea id="ed-descricao" rows="2" maxlength="500">${U.esc(d.descricao)}</textarea>
+          <span class="field-error" id="error-ed-descricao" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-tipo">Tipo *</label>
+          <input type="text" id="ed-tipo" list="list-tipo" maxlength="80" value="${U.esc(d.tipo)}">
+          <span class="field-error" id="error-ed-tipo" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-setor">Setor *</label>
+          <select id="ed-setor">${opsSetor}</select>
+          <span class="field-error" id="error-ed-setor" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-categoria">Categoria *</label>
+          <select id="ed-categoria">${opsCategoria}</select>
+          <span class="field-error" id="error-ed-categoria" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-data">Data do Documento *</label>
+          <input type="date" id="ed-data" value="${U.esc(d.data_documento || '')}">
+          <span class="field-error" id="error-ed-data" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-prazo">Prazo de Guarda (temporalidade) *</label>
+          <input type="date" id="ed-prazo" value="${U.esc(d.prazo_guarda || '')}">
+          <span class="field-error" id="error-ed-prazo" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-caixa">Caixa / Localização Física *</label>
+          <select id="ed-caixa"><option value="">Selecione…</option>${opsCaixa}</select>
+          <span class="field-error" id="error-ed-caixa" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="ed-observacoes">Observações *</label>
+          <textarea id="ed-observacoes" rows="2" maxlength="1000">${U.esc(d.observacoes || '')}</textarea>
+          <span class="field-error" id="error-ed-observacoes" role="alert"></span>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btn-salvar-edicao">Salvar</button>
+          <button type="button" class="btn btn-ghost" id="btn-cancelar-edicao">Cancelar</button>
+        </div>
+      </form>`);
+
+    // valores atuais nos selects
+    document.getElementById('ed-setor').value = d.setor || '';
+    document.getElementById('ed-categoria').value = d.categoria || '';
+    document.getElementById('ed-caixa').value = d.caixa_id || '';
+
+    const form = document.getElementById('form-editar-doc');
+    document.getElementById('btn-cancelar-edicao').addEventListener('click', () => Modal.close());
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      U.clearErrors(form);
+
+      const descricao = document.getElementById('ed-descricao').value.trim();
+      const tipo = document.getElementById('ed-tipo').value.trim();
+      const setor = document.getElementById('ed-setor').value;
+      const categoria = document.getElementById('ed-categoria').value;
+      const dataDoc = document.getElementById('ed-data').value;
+      const prazo = document.getElementById('ed-prazo').value;
+      const caixa = document.getElementById('ed-caixa').value;
+      const observacoes = document.getElementById('ed-observacoes').value.trim();
+
+      let ok = true;
+      if (!descricao) { U.setError('ed-descricao', 'A descrição é obrigatória.'); ok = false; }
+      if (!tipo) { U.setError('ed-tipo', 'Informe o tipo.'); ok = false; }
+      if (!setor) { U.setError('ed-setor', 'Selecione o setor.'); ok = false; }
+      if (!categoria) { U.setError('ed-categoria', 'Selecione a categoria.'); ok = false; }
+      if (!dataDoc) { U.setError('ed-data', 'Informe a data do documento.'); ok = false; }
+      if (!prazo) { U.setError('ed-prazo', 'Informe o prazo de guarda.'); ok = false; }
+      if (!caixa) { U.setError('ed-caixa', 'Selecione a caixa/localização.'); ok = false; }
+      if (!observacoes) { U.setError('ed-observacoes', 'As observações são obrigatórias.'); ok = false; }
+      if (!ok) return;
+
+      const btn = document.getElementById('btn-salvar-edicao');
+      U.loading(btn, true);
+      try {
+        await SGA_API.update('documentos', d.id, {
+          descricao, tipo, setor, categoria,
+          data_documento: dataDoc,
+          prazo_guarda: prazo,
+          caixa_id: caixa,
+          observacoes,
+        });
+        U.toast(`Documento ${d.protocolo} atualizado!`, 'success');
+        Modal.close();
+        refazerPesquisa();
+      } catch (err) {
+        U.toast(err.message, 'error');
+        U.loading(btn, false);
+      }
+    });
+  }
+
+  /** Reexecuta a busca atual da aba Pesquisa. */
+  function refazerPesquisa() {
+    const form = document.getElementById('form-pesquisa');
+    if (!form) return;
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { cancelable: true }));
   }
 
   /* ============================================================

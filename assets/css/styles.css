@@ -599,6 +599,22 @@ a { color: var(--primary); }
 #tab-local .data-table td,
 #tab-pesquisa .data-table td { padding: .5rem .7rem; }
 
+/* Resultados da pesquisa (section-pesquisa): fonte um pouco menor;
+   protocolo e localização sempre inteiros em uma única linha */
+#table-pesquisa { font-size: .8rem; }
+#table-pesquisa td { padding: .5rem .6rem; }
+#table-pesquisa td.cell-protocolo,
+#table-pesquisa td.cell-local { white-space: nowrap; }
+
+/* Telas menores (≤1100px): comprime mais para caber sem quebrar */
+@media (max-width: 1100px) {
+  #table-pesquisa { font-size: .75rem; }
+  #table-pesquisa th,
+  #table-pesquisa td { padding: .4rem .5rem; }
+  #table-pesquisa .table-actions { gap: .3rem; }
+  #table-pesquisa .table-actions .btn { padding: .3rem .55rem; font-size: .76rem; }
+}
+
 @media (max-width: 1100px) {
   #tab-local .grid-2col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -687,7 +703,14 @@ a { color: var(--primary); }
 .status-atrasado    { background: var(--danger-bg); color: var(--danger); }
 .status-devolvido   { background: var(--info-bg); color: var(--primary); }
 
-.table-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: nowrap;      /* Detalhes/Editar sempre na mesma linha */
+  white-space: nowrap;
+}
+.table-actions .btn { flex: 0 0 auto; }
 
 /* ============================================================
    ABAS (TABS)
