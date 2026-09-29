@@ -643,7 +643,7 @@ a { color: var(--primary); }
 
 /* Resultados da pesquisa (section-pesquisa): fonte um pouco menor;
    protocolo e localização sempre inteiros em uma única linha */
-/* Resultados: 10 linhas por página em tela 14" sem rolagem */
+/* Resultados: linhas suficientes para preencher a tela 14" */
 #table-pesquisa { font-size: .78rem; }
 #table-pesquisa th { padding: .4rem .6rem; }
 #table-pesquisa td { padding: .32rem .6rem; }
@@ -758,7 +758,7 @@ td.cell-local { white-space: nowrap; }
 .table-actions .btn { flex: 0 0 auto; }
 
 /* ============================================================
-   PAGINAÇÃO (aba Pesquisa) — 10 documentos por página
+   PAGINAÇÃO (aba Pesquisa) — linhas que cabem na tela
    ============================================================ */
 .pagination {
   display: flex;

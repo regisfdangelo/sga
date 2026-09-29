@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.16';
+  const VERSAO_APP = '20260929.18';
 
   /* ============================================================
      UTILITÁRIOS
@@ -512,22 +512,74 @@
       renderPesquisa([]);
       document.getElementById('pesquisa-count').textContent = '0';
     });
+
+    // Redimensionar a janela muda quantas linhas cabem na tela
+    let timerResize = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(timerResize);
+      timerResize = setTimeout(() => {
+        if (docsPesquisa.length) renderPesquisa(docsPesquisa);
+      }, 150);
+    });
   }
 
-  /** Paginação da aba Pesquisa: 10 documentos por página. */
-  const POR_PAGINA = 10;
+  /* Paginação da aba Pesquisa: cada página tem o MÁXIMO de linhas que
+     cabem na tela (recalculado a cada busca e no resize da janela). */
+  let porPagina = 10;
   let paginaPesquisa = 1;
   let docsPesquisa = [];
 
+  /** Espaço reservado abaixo da tabela: barra de paginação + margem. */
+  const RESERVA_RODAPE = 62;
+
+  /** Quantas linhas cabem entre o topo da tabela e o fim da tela. */
+  function calcularPorPagina() {
+    const tabela = document.getElementById('table-pesquisa');
+    if (!tabela) return 10;
+    // altura de uma linha já renderizada; senão, usa o cabeçalho
+    const exemplo = tabela.querySelector('tbody td:not(.empty-state)')
+      || tabela.querySelector('thead tr');
+    const alturaLinha = exemplo ? exemplo.getBoundingClientRect().height : 30;
+    const topo = tabela.getBoundingClientRect().top;
+    const disponivel = document.documentElement.clientHeight - topo - RESERVA_RODAPE;
+    const linhas = alturaLinha > 0 ? Math.floor(disponivel / alturaLinha) : 10;
+    return Math.max(1, Math.min(50, linhas));
+  }
+
+  /**
+   * Calcula quantas linhas cabem na tela, desenha e corrige o excesso —
+   * a barra de rolagem vertical NÃO pode aparecer na aba Pesquisa.
+   */
   function renderPesquisa(docs) {
     docsPesquisa = docs;
+    porPagina = calcularPorPagina();
+    desenharPesquisa();
+
+    // Correção de segurança: se ainda houver estouro de altura,
+    // corta linhas e redesenha (no máximo 10 rodadas).
+    let rodada = 0;
+    while (rodada < 10 && porPagina > 1) {
+      const raiz = document.documentElement;
+      const excesso = raiz.scrollHeight - raiz.clientHeight;
+      if (excesso <= 0) break;
+      const celula = document.querySelector('#table-pesquisa tbody td');
+      const alturaLinha = celula && celula.clientHeight ? celula.clientHeight : 30;
+      porPagina = Math.max(1, porPagina - Math.ceil(excesso / alturaLinha));
+      desenharPesquisa();
+      rodada++;
+    }
+  }
+
+  /** Desenha a fatia atual (paginaPesquisa) da lista docsPesquisa. */
+  function desenharPesquisa() {
+    const docs = docsPesquisa;
     document.getElementById('pesquisa-count').textContent = docs.length;
 
-    const totalPaginas = Math.max(1, Math.ceil(docs.length / POR_PAGINA));
+    const totalPaginas = Math.max(1, Math.ceil(docs.length / porPagina));
     if (paginaPesquisa > totalPaginas) paginaPesquisa = totalPaginas;
     if (paginaPesquisa < 1) paginaPesquisa = 1;
-    const inicio = (paginaPesquisa - 1) * POR_PAGINA;
-    const pagina = docs.slice(inicio, inicio + POR_PAGINA);
+    const inicio = (paginaPesquisa - 1) * porPagina;
+    const pagina = docs.slice(inicio, inicio + porPagina);
 
     const tbody = document.querySelector('#table-pesquisa tbody');
 
