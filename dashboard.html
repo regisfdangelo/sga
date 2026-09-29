@@ -312,8 +312,8 @@
                   </div>
 
                   <div class="form-group">
-                    <label for="doc-categoria">Categoria</label>
-                    <select id="doc-categoria">
+                    <label for="doc-categoria">Categoria *</label>
+                    <select id="doc-categoria" required>
                       <option value="">Selecione…</option>
                       <option>Administrativo</option>
                       <option>Fiscal</option>
@@ -323,28 +323,33 @@
                       <option>Técnico</option>
                       <option>Correspondência</option>
                     </select>
+                    <span class="field-error" id="error-doc-categoria" role="alert"></span>
                   </div>
 
                   <div class="form-group">
-                    <label for="doc-data">Data do Documento</label>
-                    <input type="date" id="doc-data">
+                    <label for="doc-data">Data do Documento *</label>
+                    <input type="date" id="doc-data" required>
+                    <span class="field-error" id="error-doc-data" role="alert"></span>
                   </div>
 
                   <div class="form-group">
-                    <label for="doc-prazo">Prazo de Guarda (temporalidade)</label>
-                    <input type="date" id="doc-prazo">
+                    <label for="doc-prazo">Prazo de Guarda (temporalidade) *</label>
+                    <input type="date" id="doc-prazo" required>
+                    <span class="field-error" id="error-doc-prazo" role="alert"></span>
                   </div>
 
                   <div class="form-group">
-                    <label for="doc-caixa">Caixa / Localização Física</label>
-                    <select id="doc-caixa">
+                    <label for="doc-caixa">Caixa / Localização Física *</label>
+                    <select id="doc-caixa" required>
                       <option value="">Selecione…</option>
                     </select>
+                    <span class="field-error" id="error-doc-caixa" role="alert"></span>
                   </div>
 
                   <div class="form-group span-2">
-                    <label for="doc-observacoes">Observações</label>
-                    <textarea id="doc-observacoes" rows="2" maxlength="1000" placeholder="Informações complementares"></textarea>
+                    <label for="doc-observacoes">Observações *</label>
+                    <textarea id="doc-observacoes" rows="2" required maxlength="1000" placeholder="Informações complementares"></textarea>
+                    <span class="field-error" id="error-doc-observacoes" role="alert"></span>
                   </div>
 
                   <div class="form-actions span-2">

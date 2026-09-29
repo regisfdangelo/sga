@@ -562,10 +562,20 @@
       const descricao = document.getElementById('doc-descricao').value.trim();
       const tipo = document.getElementById('doc-tipo').value.trim();
       const setor = document.getElementById('doc-setor').value;
+      const categoria = document.getElementById('doc-categoria').value;
+      const dataDoc = document.getElementById('doc-data').value;
+      const prazo = document.getElementById('doc-prazo').value;
+      const caixa = document.getElementById('doc-caixa').value;
+      const observacoes = document.getElementById('doc-observacoes').value.trim();
 
       if (!descricao) { U.setError('doc-descricao', 'A descrição é obrigatória.'); ok = false; }
       if (!tipo) { U.setError('doc-tipo', 'Informe o tipo.'); ok = false; }
       if (!setor) { U.setError('doc-setor', 'Selecione o setor.'); ok = false; }
+      if (!categoria) { U.setError('doc-categoria', 'Selecione a categoria.'); ok = false; }
+      if (!dataDoc) { U.setError('doc-data', 'Informe a data do documento.'); ok = false; }
+      if (!prazo) { U.setError('doc-prazo', 'Informe o prazo de guarda.'); ok = false; }
+      if (!caixa) { U.setError('doc-caixa', 'Selecione a caixa/localização.'); ok = false; }
+      if (!observacoes) { U.setError('doc-observacoes', 'As observações são obrigatórias.'); ok = false; }
       if (!ok) return;
 
       const btn = document.getElementById('btn-salvar-doc');
@@ -585,11 +595,11 @@
               descricao,
               tipo,
               setor,
-              categoria: document.getElementById('doc-categoria').value || null,
-              data_documento: document.getElementById('doc-data').value || null,
-              prazo_guarda: document.getElementById('doc-prazo').value || null,
-              caixa_id: document.getElementById('doc-caixa').value || null,
-              observacoes: document.getElementById('doc-observacoes').value.trim() || null,
+              categoria,
+              data_documento: dataDoc,
+              prazo_guarda: prazo,
+              caixa_id: caixa,
+              observacoes,
               status: 'disponivel',
             });
             protocoloSalvo = protocolo;
