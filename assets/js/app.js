@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.12';
+  const VERSAO_APP = '20260929.16';
 
   /* ============================================================
      UTILITÁRIOS
@@ -470,6 +470,7 @@
     let seqPesquisa = 0;
 
     async function executarPesquisa() {
+      paginaPesquisa = 1; // nova busca volta para a primeira página
       const minhaVez = ++seqPesquisa;
       const tbody = document.querySelector('#table-pesquisa tbody');
       tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Pesquisando…</td></tr>';
@@ -506,25 +507,40 @@
     document.getElementById('btn-limpar-pesquisa').addEventListener('click', () => {
       clearTimeout(timerDescricao);
       seqPesquisa++; // cancela resposta pendente
+      paginaPesquisa = 1;
       form.reset();
       renderPesquisa([]);
       document.getElementById('pesquisa-count').textContent = '0';
     });
   }
 
+  /** Paginação da aba Pesquisa: 10 documentos por página. */
+  const POR_PAGINA = 10;
+  let paginaPesquisa = 1;
+  let docsPesquisa = [];
+
   function renderPesquisa(docs) {
+    docsPesquisa = docs;
     document.getElementById('pesquisa-count').textContent = docs.length;
+
+    const totalPaginas = Math.max(1, Math.ceil(docs.length / POR_PAGINA));
+    if (paginaPesquisa > totalPaginas) paginaPesquisa = totalPaginas;
+    if (paginaPesquisa < 1) paginaPesquisa = 1;
+    const inicio = (paginaPesquisa - 1) * POR_PAGINA;
+    const pagina = docs.slice(inicio, inicio + POR_PAGINA);
+
     const tbody = document.querySelector('#table-pesquisa tbody');
 
     if (!docs.length) {
       tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Nenhum documento encontrado</td></tr>';
+      renderPaginacao(0);
       return;
     }
 
-    tbody.innerHTML = docs.map(d => `
+    tbody.innerHTML = pagina.map(d => `
       <tr>
         <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
-        <td>${U.esc(d.descricao)}</td>
+        <td><span class="cell-desc" title="${U.esc(d.descricao)}">${U.esc(d.descricao)}</span></td>
         <td>${U.esc(d.tipo)}</td>
         <td>${U.esc(d.setor)}</td>
         <td>${U.pill(d.status)}</td>
@@ -548,6 +564,56 @@
       btn.addEventListener('click', () => {
         const doc = docs.find(x => x.id === btn.dataset.editar);
         if (doc) abrirEdicaoDocumento(doc);
+      });
+    });
+
+    renderPaginacao(totalPaginas);
+  }
+
+  /** Renderiza os botões de página (1 … N) sob a tabela de resultados. */
+  function renderPaginacao(totalPaginas) {
+    const nav = document.getElementById('pesquisa-pagination');
+    if (!nav) return;
+    if (totalPaginas <= 1) {
+      nav.innerHTML = '';
+      nav.hidden = true;
+      return;
+    }
+    nav.hidden = false;
+
+    // Janela de páginas: todas até 9; depois 1 … x-1 x x+1 … N
+    const paginas = [];
+    if (totalPaginas <= 9) {
+      for (let i = 1; i <= totalPaginas; i++) paginas.push(i);
+    } else {
+      paginas.push(1);
+      const de = Math.max(2, paginaPesquisa - 2);
+      const ate = Math.min(totalPaginas - 1, paginaPesquisa + 2);
+      if (de > 2) paginas.push('…');
+      for (let i = de; i <= ate; i++) paginas.push(i);
+      if (ate < totalPaginas - 1) paginas.push('…');
+      paginas.push(totalPaginas);
+    }
+
+    nav.innerHTML =
+      `<button type="button" class="page-btn" data-pag="${paginaPesquisa - 1}"`
+      + `${paginaPesquisa === 1 ? ' disabled' : ''} aria-label="Página anterior">&#8249;</button>`
+      + paginas.map(p => p === '…'
+        ? '<span class="page-ellipsis">…</span>'
+        : `<button type="button" class="page-btn${p === paginaPesquisa ? ' active' : ''}"`
+          + ` data-pag="${p}"${p === paginaPesquisa ? ' aria-current="page"' : ''}>${p}</button>`
+      ).join('')
+      + `<button type="button" class="page-btn" data-pag="${paginaPesquisa + 1}"`
+      + `${paginaPesquisa >= totalPaginas ? ' disabled' : ''} aria-label="Próxima página">&#8250;</button>`;
+
+    nav.querySelectorAll('[data-pag]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const alvo = Number(btn.dataset.pag);
+        if (!Number.isFinite(alvo) || alvo < 1 || alvo > totalPaginas || alvo === paginaPesquisa) return;
+        paginaPesquisa = alvo;
+        renderPesquisa(docsPesquisa);
+        const tabela = document.getElementById('table-pesquisa');
+        if (tabela) tabela.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
     });
   }
@@ -725,12 +791,17 @@
     });
   }
 
-  /** Reexecuta a busca atual da aba Pesquisa. */
+  /**
+   * Reexecuta a busca atual da aba Pesquisa mantendo a página em que o
+   * usuário está (usado após Editar/Excluir um documento).
+   */
   function refazerPesquisa() {
     const form = document.getElementById('form-pesquisa');
     if (!form) return;
+    const pagina = paginaPesquisa;
     if (form.requestSubmit) form.requestSubmit();
     else form.dispatchEvent(new Event('submit', { cancelable: true }));
+    paginaPesquisa = pagina; // executarPesquisa volta para a página 1; restaura
   }
 
   /* ============================================================
