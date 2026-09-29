@@ -470,20 +470,23 @@ a { color: var(--primary); }
    ============================================================ */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 1.25rem;
   margin-bottom: 1.5rem;
 }
 
 .metric-card {
-  background: var(--card);
-  border-radius: var(--radius);
+  position: relative;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 12px;
   box-shadow: var(--shadow);
-  padding: 1.35rem 1.4rem;
+  padding: 1.3rem 1.4rem;
   display: flex;
   align-items: center;
-  gap: 1.1rem;
-  border-left: 4px solid var(--primary);
+  gap: 1.15rem;
+  overflow: hidden;
   transition: transform var(--transition), box-shadow var(--transition);
 }
 .metric-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
@@ -494,23 +497,46 @@ a { color: var(--primary); }
 .metric-card.metric-success { border-left-color: var(--success); }
 
 .metric-icon {
-  width: 52px; height: 52px;
-  border-radius: 12px;
+  width: 54px; height: 54px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  padding: 12px;
+  padding: 13px;
 }
-.metric-icon svg { width: 100%; height: 100%; }
+.metric-icon svg { width: 100%; height: 100%; stroke-width: 1.8; }
 
 .metric-primary .metric-icon { background: var(--info-bg); color: var(--primary); }
 .metric-warning .metric-icon { background: var(--warning-bg); color: var(--warning); }
 .metric-danger  .metric-icon { background: var(--danger-bg); color: var(--danger); }
 .metric-success .metric-icon { background: var(--success-bg); color: var(--success); }
 
-.metric-body { display: flex; flex-direction: column; }
-.metric-value { font-size: 1.9rem; font-weight: 800; line-height: 1.1; color: var(--text); }
-.metric-label { font-size: .82rem; color: var(--text-muted); font-weight: 500; margin-top: .15rem; }
+.metric-body { display: flex; flex-direction: column; min-width: 0; }
+
+/* Número: grande, alinhado opticamente (tabular) e na cor do indicador */
+.metric-value {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  color: var(--text);
+}
+.metric-primary .metric-value { color: var(--primary-dark); }
+.metric-warning .metric-value { color: #b45309; }
+.metric-danger  .metric-value { color: #b91c1c; }
+.metric-success .metric-value { color: #15803d; }
+
+/* Rótulo: maior, negrito e alto contraste para leitura rápida */
+.metric-label {
+  margin-top: .3rem;
+  font-size: .88rem;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: .01em;
+  color: #334155;
+}
 
 /* ============================================================
    PAINÉIS / CARDS
@@ -542,6 +568,22 @@ a { color: var(--primary); }
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 0 1.5rem;
 }
+
+/* ============================================================
+   PAINEL — layout compacto para caber em tela 14" (1366x768)
+   sem barra de rolagem vertical (5 últimas linhas por painel)
+   ============================================================ */
+#section-painel .metrics-grid { margin-bottom: 1rem; gap: 1rem; }
+#section-painel .metric-card { padding: 1.05rem 1.2rem; gap: 1rem; }
+#section-painel .metric-icon { width: 48px; height: 48px; padding: 11px; border-radius: 13px; }
+#section-painel .grid-2col { gap: 0 1.25rem; }
+#section-painel .panel { margin-bottom: 1rem; }
+#section-painel .panel-header { padding: .7rem 1.2rem; }
+#section-painel .panel-header h3 { font-size: .95rem; }
+#section-painel .panel-body { padding: .9rem 1rem 1rem; }
+#section-painel .data-table { font-size: .85rem; }
+#section-painel .data-table th { padding: .5rem .75rem; }
+#section-painel .data-table td { padding: .5rem .75rem; }
 
 /* ============================================================
    ABA "SALAS DE ARQUIVO" — compacta para notebook 14" (1366x768)
@@ -603,8 +645,9 @@ a { color: var(--primary); }
    protocolo e localização sempre inteiros em uma única linha */
 #table-pesquisa { font-size: .8rem; }
 #table-pesquisa td { padding: .5rem .6rem; }
-#table-pesquisa td.cell-protocolo,
-#table-pesquisa td.cell-local { white-space: nowrap; }
+/* Protocolo e localização: inteiros em uma linha em QUALQUER tabela */
+td.cell-protocolo,
+td.cell-local { white-space: nowrap; }
 
 /* Telas menores (≤1100px): comprime mais para caber sem quebrar */
 @media (max-width: 1100px) {
@@ -899,9 +942,10 @@ a { color: var(--primary); }
 @media (max-width: 560px) {
   html { font-size: 14px; }
   .metrics-grid { grid-template-columns: 1fr 1fr; gap: .85rem; }
-  .metric-card { padding: 1rem; gap: .75rem; }
-  .metric-value { font-size: 1.5rem; }
-  .metric-icon { width: 42px; height: 42px; padding: 9px; }
+  .metric-card { padding: .95rem .9rem; gap: .7rem; border-radius: 10px; }
+  .metric-value { font-size: 1.55rem; }
+  .metric-label { font-size: .78rem; margin-top: .2rem; }
+  .metric-icon { width: 42px; height: 42px; padding: 9px; border-radius: 11px; }
   .grid-2col { grid-template-columns: 1fr; }
   .login-card { padding: 1.75rem 1.25rem 1.5rem; }
   .detail-row { grid-template-columns: 1fr; gap: .1rem; }

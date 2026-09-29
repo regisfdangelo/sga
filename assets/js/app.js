@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.8';
+  const VERSAO_APP = '20260929.12';
 
   /* ============================================================
      UTILITÁRIOS
@@ -419,13 +419,13 @@
       // Últimos documentos
       const recentes = [...m.documentos]
         .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-        .slice(0, 8);
+        .slice(0, 5);
 
       const tbodyDoc = document.querySelector('#table-recentes tbody');
       tbodyDoc.innerHTML = recentes.length
         ? recentes.map(d => `
             <tr>
-              <td><strong>${U.esc(d.protocolo)}</strong></td>
+              <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
               <td>${U.esc(d.descricao)}</td>
               <td>${U.esc(d.setor)}</td>
               <td>${U.pill(d.status)}</td>
@@ -436,7 +436,7 @@
       const ativos = m.emprestimos
         .filter(e => e.status === 'ativo')
         .sort((a, b) => (a.data_devolucao_prevista || '').localeCompare(b.data_devolucao_prevista || ''))
-        .slice(0, 8);
+        .slice(0, 5);
 
       const tbodyEmp = document.querySelector('#table-emprestimos-ativos tbody');
       tbodyEmp.innerHTML = ativos.length
@@ -444,7 +444,7 @@
             const atrasado = e.data_devolucao_prevista && e.data_devolucao_prevista < U.hoje();
             return `
             <tr>
-              <td>${U.esc(e.doc_protocolo || e.documento_id || '—')}</td>
+              <td class="cell-protocolo">${U.esc(e.doc_protocolo || e.documento_id || '—')}</td>
               <td>${U.esc(e.solicitante_nome)}</td>
               <td>${U.fmtData(e.data_devolucao_prevista)}</td>
               <td>${U.pill(atrasado ? 'atrasado' : 'ativo')}</td>
@@ -1070,7 +1070,7 @@
             const atrasado = e.data_devolucao_prevista && e.data_devolucao_prevista < hoje;
             return `
             <tr>
-              <td>${U.esc(e.doc_protocolo || '—')}</td>
+              <td class="cell-protocolo">${U.esc(e.doc_protocolo || '—')}</td>
               <td>${U.esc(e.solicitante_nome)}</td>
               <td>${U.fmtData(e.data_emprestimo)}</td>
               <td>${U.fmtData(e.data_devolucao_prevista)}</td>
@@ -1158,7 +1158,12 @@
     let html = '';
 
     const th = cols => `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
-    const tdRow = (cols, tr) => `<tr>${cols.map(c => `<td>${c}</td>`).join('')}</tr>`;
+    // Aceita string (célula simples) ou { cls, html } (com classe na <td>)
+    const tdRow = cols => `<tr>${cols.map(c =>
+      c && typeof c === 'object'
+        ? `<td class="${c.cls}">${c.html}</td>`
+        : `<td>${c}</td>`
+    ).join('')}</tr>`;
 
     switch (tipo) {
       case 'acervo': {
@@ -1166,9 +1171,10 @@
         html = `<table class="data-table">${th(['Protocolo', 'Descrição', 'Tipo', 'Setor', 'Status', 'Localização'])}<tbody>` +
           (documentos.length
             ? documentos.map(d => tdRow([
-                `<strong>${U.esc(d.protocolo)}</strong>`,
+                { cls: 'cell-protocolo', html: `<strong>${U.esc(d.protocolo)}</strong>` },
                 U.esc(d.descricao), U.esc(d.tipo), U.esc(d.setor),
-                U.pill(d.status), U.esc(U.locLabel(d.caixas)),
+                U.pill(d.status),
+                { cls: 'cell-local', html: U.esc(U.locLabel(d.caixas)) },
               ])).join('')
             : '<tr><td colspan="6" class="empty-state">Sem dados</td></tr>') +
           '</tbody></table>';
@@ -1209,7 +1215,7 @@
             ? comPrazo.map(d => {
                 const vencido = d.prazo_guarda <= hoje;
                 return tdRow([
-                  `<strong>${U.esc(d.protocolo)}</strong>`,
+                  { cls: 'cell-protocolo', html: `<strong>${U.esc(d.protocolo)}</strong>` },
                   U.esc(d.descricao), U.esc(d.setor),
                   U.fmtData(d.prazo_guarda),
                   vencido ? '<span class="status status-atrasado">Vencido</span>' : '<span class="status status-ativo">Vigente</span>',
@@ -1224,7 +1230,7 @@
         html = `<table class="data-table">${th(['Documento', 'Solicitante', 'Saída', 'Prevista', 'Devolução', 'Status'])}<tbody>` +
           (emprestimos.length
             ? emprestimos.map(e => tdRow([
-                U.esc(e.doc_protocolo || '—'),
+                { cls: 'cell-protocolo', html: U.esc(e.doc_protocolo || '—') },
                 U.esc(e.solicitante_nome),
                 U.fmtData(e.data_emprestimo),
                 U.fmtData(e.data_devolucao_prevista),
@@ -1243,7 +1249,7 @@
         html = `<table class="data-table">${th(['Protocolo', 'Descrição', 'Setor', 'Prazo vencido em'])}<tbody>` +
           (lista.length
             ? lista.map(d => tdRow([
-                `<strong>${U.esc(d.protocolo)}</strong>`,
+                { cls: 'cell-protocolo', html: `<strong>${U.esc(d.protocolo)}</strong>` },
                 U.esc(d.descricao), U.esc(d.setor),
                 U.fmtData(d.prazo_guarda),
               ])).join('')
