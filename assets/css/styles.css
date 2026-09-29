@@ -543,6 +543,69 @@ a { color: var(--primary); }
   gap: 0 1.5rem;
 }
 
+/* ============================================================
+   ABA "SALAS DE ARQUIVO" — compacta para notebook 14" (1366x768)
+   As 4 seções (Sala, Estante, Prateleira, Caixa) ficam em uma
+   única linha, com texto menor e botões alinhados no rodapé
+   (mesma linha horizontal nas 4 colunas).
+   ============================================================ */
+#tab-local .grid-2col {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 1rem;
+}
+
+#tab-local .panel,
+#tab-pesquisa .panel { margin-bottom: 1rem; }
+
+#tab-local .panel-header,
+#tab-pesquisa .panel-header { padding: .6rem 1rem; }
+#tab-local .panel-header h3,
+#tab-pesquisa .panel-header h3 { font-size: .92rem; }
+
+/* Cadeia flex: painel -> body -> form com altura igual,
+   empurrando o botão para o mesmo rodapé nas 4 colunas */
+#tab-local .grid-2col .panel {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+}
+#tab-local .grid-2col .panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: .85rem 1rem;
+}
+#tab-local .grid-2col .form-stack {
+  flex: 1;
+  gap: .5rem;
+}
+#tab-local .grid-2col .btn {
+  margin-top: auto;
+  align-self: stretch;
+  padding: .5rem .8rem;
+  font-size: .88rem;
+}
+
+/* Texto e campos reduzidos */
+#tab-local .form-group { gap: .2rem; }
+#tab-local .form-group label { font-size: .78rem; }
+#tab-local .form-group input,
+#tab-local .form-group select {
+  padding: .45rem .6rem;
+  font-size: .88rem;
+}
+#tab-local .data-table,
+#tab-pesquisa .data-table { font-size: .84rem; }
+#tab-local .data-table td,
+#tab-pesquisa .data-table td { padding: .5rem .7rem; }
+
+@media (max-width: 1100px) {
+  #tab-local .grid-2col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  #tab-local .grid-2col { grid-template-columns: 1fr; }
+}
+
 .protocol-preview {
   font-size: .85rem;
   font-weight: 700;
