@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20260929.3">
 </head>
 <body class="app-page">
 
@@ -189,8 +189,12 @@
             <div class="panel-body">
               <form id="form-pesquisa" class="filters-row" novalidate>
                 <div class="form-group">
-                  <label for="pesq-texto">Texto / Protocolo</label>
-                  <input type="text" id="pesq-texto" placeholder="Buscar por descrição, protocolo…" maxlength="200">
+                  <label for="pesq-protocolo">Protocolo</label>
+                  <input type="text" id="pesq-protocolo" placeholder="Ex.: 2026-000001" maxlength="20">
+                </div>
+                <div class="form-group">
+                  <label for="pesq-descricao">Descrição</label>
+                  <input type="text" id="pesq-descricao" placeholder="Filtra os resultados ao digitar…" maxlength="200">
                 </div>
                 <div class="form-group">
                   <label for="pesq-setor">Setor</label>
@@ -216,10 +220,6 @@
                     <option value="descartavel">Descartável</option>
                     <option value="descartado">Descartado</option>
                   </select>
-                </div>
-                <div class="form-group">
-                  <label for="pesq-tipo">Tipo</label>
-                  <input type="text" id="pesq-tipo" placeholder="Ex.: Contrato" maxlength="80">
                 </div>
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary">Pesquisar</button>
@@ -725,8 +725,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js"></script>
-  <script src="assets/js/api.js"></script>
-  <script src="assets/js/app.js"></script>
+  <script src="assets/js/config.js?v=20260929.3"></script>
+  <script src="assets/js/api.js?v=20260929.3"></script>
+  <script src="assets/js/app.js?v=20260929.3"></script>
 </body>
 </html>

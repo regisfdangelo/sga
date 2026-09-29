@@ -11,6 +11,14 @@ const SGA_API = (() => {
   const BASE = () => SGA_CONFIG.SUPABASE_URL.replace(/\/$/, '');
   const ANON = () => SGA_CONFIG.SUPABASE_ANON_KEY;
 
+  /**
+   * Versão dos arquivos JS. Precisa ser IGUAL à VERSAO_APP de app.js:
+   * se o navegador servir um arquivo antigo (cache), app.js detecta a
+   * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
+   * JS/CSS, incrementar também o ?v= nos HTML.
+   */
+  const versao = '20260929.3';
+
   /* ----------------------------------------------------------
      Helpers internos
      ---------------------------------------------------------- */
@@ -319,18 +327,23 @@ const SGA_API = (() => {
   }
 
   async function searchDocumentos(filtros = {}) {
-    let q = '';
     const parts = [];
 
-    if (filtros.texto) {
-      const t = encodeURIComponent(`%${filtroSeguro(filtros.texto)}%`);
-      parts.push(`or(protocolo.ilike.${t},descricao.ilike.${t})`);
+    // Formato obrigatório do PostgREST: coluna=operador.valor.
+    // "coluna.operador.valor" (sem '=') é ignorado silenciosamente
+    // e devolve TODOS os registros.
+    if (filtros.protocolo) {
+      const t = encodeURIComponent(`%${filtroSeguro(filtros.protocolo)}%`);
+      parts.push(`protocolo=ilike.${t}`);
+    }
+    if (filtros.descricao) {
+      const t = encodeURIComponent(`%${filtroSeguro(filtros.descricao)}%`);
+      parts.push(`descricao=ilike.${t}`);
     }
     if (filtros.setor) parts.push(`setor=eq.${encodeURIComponent(filtroSeguro(filtros.setor))}`);
     if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtroSeguro(filtros.status))}`);
-    if (filtros.tipo) parts.push(`tipo.ilike.${encodeURIComponent(`%${filtroSeguro(filtros.tipo)}%`)}`);
 
-    if (parts.length) q = '&' + parts.join('&');
+    const q = parts.length ? '&' + parts.join('&') : '';
     const cols = 'id,protocolo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,status,observacoes,'
       + 'caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))';
     return request('GET', `/rest/v1/documentos?select=${cols}${q}&order=created_at.desc`);
@@ -406,6 +419,7 @@ const SGA_API = (() => {
   }
 
   return {
+    versao,
     getSession,
     login,
     logout,

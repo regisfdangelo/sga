@@ -8,6 +8,9 @@
 (() => {
   'use strict';
 
+  /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
+  const VERSAO_APP = '20260929.3';
+
   /* ============================================================
      UTILITÁRIOS
      ============================================================ */
@@ -464,27 +467,45 @@
     pesquisaInit = true;
 
     const form = document.getElementById('form-pesquisa');
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
+    let seqPesquisa = 0;
+
+    async function executarPesquisa() {
+      const minhaVez = ++seqPesquisa;
       const tbody = document.querySelector('#table-pesquisa tbody');
-      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Pesquisando…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Pesquisando…</td></tr>';
 
       try {
         const filtros = {
-          texto: document.getElementById('pesq-texto').value.trim(),
+          protocolo: document.getElementById('pesq-protocolo').value.trim(),
+          descricao: document.getElementById('pesq-descricao').value.trim(),
           setor: document.getElementById('pesq-setor').value,
           status: document.getElementById('pesq-status').value,
-          tipo: document.getElementById('pesq-tipo').value.trim(),
         };
         const docs = await SGA_API.searchDocumentos(filtros);
+        if (minhaVez !== seqPesquisa) return; // resposta antiga, descarta
         renderPesquisa(docs || []);
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
+        if (minhaVez !== seqPesquisa) return;
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
         U.toast(err.message, 'error');
       }
+    }
+
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      executarPesquisa();
+    });
+
+    // Descrição: filtra enquanto o usuário digita (debounce 300ms)
+    let timerDescricao = null;
+    document.getElementById('pesq-descricao').addEventListener('input', () => {
+      clearTimeout(timerDescricao);
+      timerDescricao = setTimeout(executarPesquisa, 300);
     });
 
     document.getElementById('btn-limpar-pesquisa').addEventListener('click', () => {
+      clearTimeout(timerDescricao);
+      seqPesquisa++; // cancela resposta pendente
       form.reset();
       renderPesquisa([]);
       document.getElementById('pesquisa-count').textContent = '0';
@@ -1431,6 +1452,21 @@
      INICIALIZAÇÃO
      ============================================================ */
   document.addEventListener('DOMContentLoaded', () => {
+    // Cache dessincronizado: api.js antigo ignora os filtros novos
+    // (protocolo/descricao) e a pesquisa "volta todos os documentos".
+    if (SGA_API.versao !== VERSAO_APP) {
+      console.warn(
+        `SGA: arquivos fora de versão — api.js=${SGA_API.versao || 'antigo'} ` +
+        `vs app.js=${VERSAO_APP}. Recarregue com Ctrl+F5.`
+      );
+      if (document.getElementById('toast-container')) {
+        setTimeout(() => U.toast(
+          'Sistema desatualizado no cache. Pressione Ctrl+F5 para atualizar.',
+          'error', 10000
+        ), 600);
+      }
+    }
+
     initLogin();
     initApp();
   });
