@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20260929.7';
+  const versao = '20260929.8';
 
   /* ----------------------------------------------------------
      Helpers internos

@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.7';
+  const VERSAO_APP = '20260929.8';
 
   /* ============================================================
      UTILITÁRIOS
@@ -566,7 +566,43 @@
       ['Observações', U.esc(d.observacoes || '—')],
     ];
     const html = rows.map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
-    Modal.open(`Documento ${d.protocolo}`, `<dl>${html}</dl>`);
+
+    // "Excluir" somente para administradores
+    const isAdmin = (SGA_API.getStoredUser() || {}).perfil === 'admin';
+    const footer = isAdmin
+      ? '<button class="btn btn-danger" id="btn-excluir-doc">Excluir</button>'
+        + '<button class="btn btn-ghost" id="modal-btn-close">Fechar</button>'
+      : undefined; // rodapé padrão (apenas Fechar)
+
+    Modal.open(`Documento ${d.protocolo}`, `<dl>${html}</dl>`, footer);
+
+    const btnExcluir = document.getElementById('btn-excluir-doc');
+    if (btnExcluir) btnExcluir.addEventListener('click', () => excluirDocumento(d));
+  }
+
+  /**
+   * Exclui o documento do acervo (somente admin).
+   * Confirmação obrigatória; a exclusão é registrada automaticamente
+   * na auditoria pelo trigger trg_auditoria (sql/02_auditoria.sql).
+   */
+  async function excluirDocumento(d) {
+    const ok = confirm(
+      `Deseja realmente excluir o documento ${d.protocolo} do acervo?\n\n`
+      + 'Esta ação não pode ser desfeita. O registro ficará na auditoria.'
+    );
+    if (!ok) return;
+
+    try {
+      await SGA_API.remove('documentos', d.id);
+      U.toast(`Documento ${d.protocolo} excluído do acervo.`, 'success');
+      Modal.close();
+      refazerPesquisa();
+    } catch (err) {
+      const msg = err.code === '23503'
+        ? 'Não é possível excluir: o documento tem registros vinculados (empréstimos ou arquivos).'
+        : (err.message || 'Erro ao excluir o documento.');
+      U.toast(msg, 'error');
+    }
   }
 
   /* ---- Edição do documento (modal, a partir da aba Pesquisa) ---- */
