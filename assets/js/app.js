@@ -888,6 +888,7 @@
       const dataDoc = document.getElementById('doc-data').value;
       const prazo = document.getElementById('doc-prazo').value;
       const caixa = document.getElementById('doc-caixa').value;
+      const salaDoc = document.getElementById('doc-sala').value;
       const observacoes = document.getElementById('doc-observacoes').value.trim();
 
       if (!descricao) { U.setError('doc-descricao', 'O nome é obrigatório.'); ok = false; }
@@ -896,7 +897,8 @@
       if (!categoria) { U.setError('doc-categoria', 'Selecione a categoria.'); ok = false; }
       if (!dataDoc) { U.setError('doc-data', 'Informe a data do documento.'); ok = false; }
       if (!prazo) { U.setError('doc-prazo', 'Informe o prazo de guarda.'); ok = false; }
-      if (!caixa) { U.setError('doc-caixa', 'Selecione a caixa/localização.'); ok = false; }
+      if (!salaDoc) { U.setError('doc-sala', 'Selecione a sala.'); ok = false; }
+      else if (!caixa) { U.setError('doc-sala', 'Nenhuma caixa livre nesta sala.'); ok = false; }
       if (!ok) return;
 
       const btn = document.getElementById('btn-salvar-doc');
@@ -936,7 +938,7 @@
         U.toast(`Documento ${protocoloSalvo} cadastrado com sucesso!`, 'success');
         formDoc.reset();
         refreshProtocolo();
-        loadCaixasNoSelect();
+        alocarCaixaPorSala();
       } catch (err) {
         U.toast(`Erro ao salvar: ${err.message}`, 'error');
       } finally {
@@ -975,6 +977,7 @@
       const corredorId = document.getElementById('estante-corredor').value;
       const capacidade = parseInt(document.getElementById('estante-capacidade').value, 10);
       if (!salaId || !corredorId || !capacidade) { U.toast('Preencha sala, corredor e capacidade.', 'warning'); return; }
+      if (capacidade > 8) { U.toast('Capacidade máxima: 8 prateleiras por estante.', 'warning'); return; }
       try {
         const codigo = await SGA_API.gerarCodigo('estantes');
         await SGA_API.insert('estantes', {
@@ -1001,7 +1004,15 @@
         U.toast('Preencha sala, corredor, estante e capacidade.', 'warning');
         return;
       }
+      if (capacidade > 6) { U.toast('Capacidade máxima: 6 caixas por prateleira.', 'warning'); return; }
       try {
+        // Teto da estante: no máximo 8 prateleiras cadastradas
+        const prateleirasDaEstante = await SGA_API.list(
+          'prateleiras', `&estante_id=eq.${encodeURIComponent(estanteId)}`, 'id');
+        if ((prateleirasDaEstante || []).length >= 8) {
+          U.toast('Estante já possui o máximo de 8 prateleiras.', 'warning');
+          return;
+        }
         const codigo = await SGA_API.gerarCodigo('prateleiras');
         await SGA_API.insert('prateleiras', {
           codigo, estante_id: estanteId, capacidade,
@@ -1035,7 +1046,15 @@
         U.toast('Preencha sala, corredor, estante, prateleira e capacidade.', 'warning');
         return;
       }
+      if (capacidade > 5) { U.toast('Capacidade máxima: 5 pastas por caixa.', 'warning'); return; }
       try {
+        // Teto da prateleira: no máximo 6 caixas cadastradas
+        const caixasDaPrateleira = await SGA_API.list(
+          'caixas', `&prateleira_id=eq.${encodeURIComponent(prateleiraId)}`, 'id');
+        if ((caixasDaPrateleira || []).length >= 6) {
+          U.toast('Prateleira já possui o máximo de 6 caixas.', 'warning');
+          return;
+        }
         const codigo = await SGA_API.gerarCodigo('caixas');
         await SGA_API.insert('caixas', {
           codigo,
@@ -1047,10 +1066,9 @@
         });
         U.toast('Caixa cadastrada!', 'success');
         e.target.reset();
-        document.getElementById('caixa-capacidade').value = 50;
+        document.getElementById('caixa-capacidade').value = 5;
         loadLocalSelects();
         loadCaixasTable();
-        loadCaixasNoSelect();
         refreshCodigos();
       } catch (err) { U.toast(err.message, 'error'); }
     });
@@ -1065,9 +1083,14 @@
       fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
     });
 
+    // Aba Pesquisa: navegador da sala selecionada (capacidade x ocupação)
+    document.getElementById('pesq-sala').addEventListener('change', mostrarInfoSalaPesquisa);
+
+    // Documento: ao escolher a sala, aloca sozinho a 1ª caixa livre
+    document.getElementById('doc-sala').addEventListener('change', alocarCaixaPorSala);
+
     // Carregamentos iniciais
     loadLocalSelects();
-    loadCaixasNoSelect();
     loadCaixasTable();
   }
 
@@ -1138,11 +1161,14 @@
 
   let corredoresCache = [];
   let estantesCache = [];
+  let salasCache = [];
 
   async function loadLocalSelects() {
     try {
       const [salas, estantes, prat, corr] = await Promise.all([
-        SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao'),
+        // capacidade so existe apos o 12_capacidade; sem ela, refaz sem a coluna
+        SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao,capacidade')
+          .catch(() => SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao').catch(() => [])),
         // corredor_id so existe apos o 10_corredores.sql; sem ele, refaz sem a coluna
         SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id,corredor_id')
           .catch(() => SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => [])),
@@ -1151,6 +1177,7 @@
         SGA_API.list('corredores', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => []),
       ]);
 
+      salasCache = salas || [];
       corredoresCache = corr || [];
       estantesCache = estantes || [];
 
@@ -1158,6 +1185,8 @@
       fillSelect('caixa-sala', salas, 'Selecione a sala…');
       fillSelect('corredor-sala', salas, 'Selecione a sala…');
       fillSelect('prat-sala', salas, 'Selecione a sala…');
+      fillSelect('pesq-sala', salas, 'Selecione a sala…');
+      fillSelect('doc-sala', salas, 'Selecione a sala…');
 
       fillSelect('caixa-prateleira', prat, 'Selecione…');
 
@@ -1166,10 +1195,40 @@
       fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
       fillCorredoresDo('caixa-sala', 'caixa-corredor');
       fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
+      mostrarInfoSalaPesquisa();
+      alocarCaixaPorSala();
     } catch (err) {
       // silencioso no carregamento inicial (tabelas podem ainda não existir)
       console.warn('loadLocalSelects:', err.message);
     }
+  }
+
+  /**
+   * Aba Pesquisa (Cadastro): mostra capacidade e ocupação
+   * (quantidade de estantes) da sala selecionada no navegador.
+   */
+  function mostrarInfoSalaPesquisa() {
+    const sel = document.getElementById('pesq-sala');
+    const box = document.getElementById('pesq-sala-info');
+    if (!sel || !box) return;
+    const salaId = sel.value;
+    if (!salaId) { box.hidden = true; return; }
+
+    const sala = salasCache.find(s => String(s.id) === String(salaId));
+    const ocupacao = estantesCache.filter(e => String(e.sala_id) === String(salaId)).length;
+    const capacidade = sala && sala.capacidade !== null && sala.capacidade !== ''
+      ? Number(sala.capacidade) : null;
+
+    document.getElementById('pesq-sala-codigo').textContent = (sala && sala.codigo) || '—';
+    document.getElementById('pesq-sala-capacidade').textContent = capacidade !== null ? capacidade : '—';
+    document.getElementById('pesq-sala-ocupacao').textContent = ocupacao;
+
+    const pct = capacidade ? Math.round((ocupacao / capacidade) * 100) : null;
+    document.getElementById('pesq-sala-percent').textContent = pct !== null ? `${pct}%` : '—';
+    const fill = document.getElementById('pesq-sala-bar');
+    fill.style.width = pct !== null ? `${Math.min(pct, 100)}%` : '0%';
+    fill.classList.toggle('cheia', pct !== null && pct >= 100);
+    box.hidden = false;
   }
 
   /**
@@ -1220,11 +1279,57 @@
     if (!sel.value && sel.options.length) sel.selectedIndex = 0;
   }
 
-  async function loadCaixasNoSelect() {
+  /**
+   * Cadastro de Documentos: a partir da SALA escolhida, aloca
+   * automaticamente a 1ª caixa livre da sala (ordem de código),
+   * onde "livre" = quantidade de documentos < capacidade (pastas).
+   */
+  async function alocarCaixaPorSala() {
+    const selSala = document.getElementById('doc-sala');
+    const hid = document.getElementById('doc-caixa');
+    const info = document.getElementById('doc-caixa-info');
+    if (!selSala || !hid) return;
+    const salaId = selSala.value;
+    hid.value = '';
+    if (info) info.textContent = 'Caixa alocada: —';
+    if (!salaId) return;
     try {
-      const caixas = await SGA_API.list('caixas', '&order=codigo&limit=500', 'id,codigo,descricao');
-      fillSelect('doc-caixa', caixas, 'Selecione a caixa…');
-    } catch { /* ignore */ }
+      const caixas = await SGA_API.list(
+        'caixas', `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo&limit=500`,
+        'id,codigo,capacidade');
+      const conta = await contarDocumentosPorCaixa();
+      const livre = (caixas || []).find(c => {
+        const cap = c.capacidade === null || c.capacidade === ''
+          ? Infinity : Number(c.capacidade);
+        return (conta[c.id] || 0) < cap;
+      });
+      if (!livre) {
+        if (info) info.textContent = 'Nenhuma caixa livre nesta sala.';
+        return;
+      }
+      hid.value = livre.id;
+      const ocup = conta[livre.id] || 0;
+      const cap = livre.capacidade === null || livre.capacidade === ''
+        ? '—' : Number(livre.capacidade);
+      if (info) info.textContent = `Caixa alocada: ${livre.codigo} — ${ocup}/${cap} pastas`;
+    } catch (err) {
+      if (info) info.textContent = 'Erro ao alocar a caixa.';
+      console.warn('alocarCaixaPorSala:', err.message);
+    }
+  }
+
+  /** Quantidade de documentos por caixa ({ caixa_id: n }). */
+  async function contarDocumentosPorCaixa() {
+    try {
+      const docs = await SGA_API.list('documentos', '&limit=10000', 'caixa_id');
+      const conta = {};
+      (docs || []).forEach(d => {
+        if (d.caixa_id) conta[d.caixa_id] = (conta[d.caixa_id] || 0) + 1;
+      });
+      return conta;
+    } catch {
+      return {};
+    }
   }
 
   async function loadCaixasTable() {

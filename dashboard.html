@@ -348,12 +348,14 @@
                   </div>
 
                   <div class="form-group">
-                    <label for="doc-caixa">Caixa / Localização Física *</label>
-                    <select id="doc-caixa" required>
-                      <option value="">Selecione…</option>
+                    <label for="doc-sala">Sala / Localização Física *</label>
+                    <select id="doc-sala" required>
+                      <option value="">Selecione a sala…</option>
                     </select>
-                    <span class="field-error" id="error-doc-caixa" role="alert"></span>
+                    <span class="caixa-alloc" id="doc-caixa-info">Caixa alocada: —</span>
+                    <span class="field-error" id="error-doc-sala" role="alert"></span>
                   </div>
+                  <input type="hidden" id="doc-caixa">
 
                   <div class="form-group span-2">
                     <label for="doc-observacoes">Observações</label>
@@ -443,8 +445,8 @@
                       <input type="text" id="estante-descricao" maxlength="120">
                     </div>
                     <div class="form-group">
-                      <label for="estante-capacidade">Capacidade (caixas) *</label>
-                      <input type="number" id="estante-capacidade" required min="1" max="999" value="50">
+                      <label for="estante-capacidade">Capacidade (prateleiras) *</label>
+                      <input type="number" id="estante-capacidade" required min="1" max="8" value="8">
                     </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
@@ -477,7 +479,7 @@
                     </div>
                     <div class="form-group">
                       <label for="prat-capacidade">Capacidade (caixas) *</label>
-                      <input type="number" id="prat-capacidade" required min="1" max="999" value="50">
+                      <input type="number" id="prat-capacidade" required min="1" max="6" value="6">
                     </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
@@ -510,7 +512,7 @@
                     </div>
                     <div class="form-group">
                       <label for="caixa-capacidade">Capacidade (pastas) *</label>
-                      <input type="number" id="caixa-capacidade" required min="1" max="999" value="50">
+                      <input type="number" id="caixa-capacidade" required min="1" max="5" value="5">
                     </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
@@ -519,8 +521,41 @@
             </div>
           </div>
 
-          <!-- Aba Pesquisa (caixas cadastradas) -->
+          <!-- Aba Pesquisa (navegador de salas + caixas cadastradas) -->
           <div class="tab-panel" id="tab-pesquisa">
+            <article class="panel">
+              <header class="panel-header"><h3>Salas de Arquivo</h3></header>
+              <div class="panel-body">
+                <div class="sala-navegador">
+                  <div class="form-group">
+                    <label for="pesq-sala">Sala</label>
+                    <select id="pesq-sala"><option value="">Selecione a sala…</option></select>
+                  </div>
+                  <div id="pesq-sala-info" class="sala-info" hidden>
+                    <div class="sala-info-item">
+                      <span>Código</span>
+                      <strong id="pesq-sala-codigo">—</strong>
+                    </div>
+                    <div class="sala-info-item">
+                      <span>Capacidade (estantes)</span>
+                      <strong id="pesq-sala-capacidade">—</strong>
+                    </div>
+                    <div class="sala-info-item">
+                      <span>Ocupação (estantes)</span>
+                      <strong id="pesq-sala-ocupacao">—</strong>
+                    </div>
+                    <div class="sala-info-item">
+                      <span>Ocupação %</span>
+                      <strong id="pesq-sala-percent">—</strong>
+                    </div>
+                    <div class="ocup-bar" role="progressbar" aria-label="Ocupação da sala">
+                      <div class="ocup-bar-fill" id="pesq-sala-bar" style="width: 0"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
             <article class="panel">
               <header class="panel-header"><h3>Caixas Cadastradas</h3></header>
               <div class="panel-body table-wrap">

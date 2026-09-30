@@ -2,7 +2,8 @@
 -- SGA | 12_capacidade_localizacoes.sql
 -- Campo "Capacidade" nas secoes da tela Cadastro > Salas de Arquivo:
 --   Sala/Corredor -> quantidade de Estantes que comporta
---   Estante/Prateleira -> quantidade de Caixas que comporta
+--   Estante       -> quantidade de Prateleiras que comporta
+--   Prateleira    -> quantidade de Caixas que comporta
 --   Caixa (ja existente) -> quantidade de Pastas que comporta
 --
 -- Coluna nova em 4 tabelas: capacidade (integer, nullable;
