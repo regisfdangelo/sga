@@ -947,14 +947,31 @@
       loadLocalSelects();
     });
 
+    document.getElementById('form-corredor').addEventListener('submit', async e => {
+      e.preventDefault();
+      const salaId = document.getElementById('corredor-sala').value;
+      const codigo = document.getElementById('corredor-codigo').value.trim();
+      if (!salaId || !codigo) { U.toast('Preencha sala e código.', 'warning'); return; }
+      try {
+        await SGA_API.insert('corredores', {
+          codigo, sala_id: salaId,
+          descricao: document.getElementById('corredor-descricao').value.trim() || null,
+        });
+        U.toast('Corredor cadastrado!', 'success');
+        e.target.reset();
+        loadLocalSelects();
+      } catch (err) { U.toast(err.message, 'error'); }
+    });
+
     document.getElementById('form-estante').addEventListener('submit', async e => {
       e.preventDefault();
       const salaId = document.getElementById('estante-sala').value;
+      const corredorId = document.getElementById('estante-corredor').value;
       const codigo = document.getElementById('estante-codigo').value.trim();
-      if (!salaId || !codigo) { U.toast('Preencha sala e código.', 'warning'); return; }
+      if (!salaId || !corredorId || !codigo) { U.toast('Preencha sala, corredor e código.', 'warning'); return; }
       try {
         await SGA_API.insert('estantes', {
-          codigo, sala_id: salaId,
+          codigo, sala_id: salaId, corredor_id: corredorId,
           descricao: document.getElementById('estante-descricao').value.trim() || null,
         });
         U.toast('Estante cadastrada!', 'success');
@@ -963,11 +980,16 @@
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
+    // Corredores da estante: refiltra quando a sala muda
+    document.getElementById('estante-sala').addEventListener('change', fillCorredoresDaSala);
+
     document.getElementById('form-prateleira').addEventListener('submit', async e => {
       e.preventDefault();
+      const salaId = document.getElementById('prat-sala').value;
+      const corredorId = document.getElementById('prat-corredor').value;
       const estanteId = document.getElementById('prat-estante').value;
       const codigo = document.getElementById('prat-codigo').value.trim();
-      if (!estanteId || !codigo) { U.toast('Preencha estante e código.', 'warning'); return; }
+      if (!salaId || !corredorId || !estanteId || !codigo) { U.toast('Preencha sala, corredor, estante e código.', 'warning'); return; }
       try {
         await SGA_API.insert('prateleiras', {
           codigo, estante_id: estanteId,
@@ -979,18 +1001,35 @@
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
+    // Prateleira: cascata Sala -> Corredor -> Estante
+    document.getElementById('prat-sala').addEventListener('change', () => {
+      document.getElementById('prat-corredor').value = '';
+      fillCorredoresDo('prat-sala', 'prat-corredor');
+      fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
+    });
+    document.getElementById('prat-corredor').addEventListener('change', () => {
+      fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
+    });
+
     document.getElementById('form-caixa').addEventListener('submit', async e => {
       e.preventDefault();
       const codigo = document.getElementById('caixa-codigo').value.trim();
       const salaId = document.getElementById('caixa-sala').value;
-      if (!codigo || !salaId) { U.toast('Preencha código e sala.', 'warning'); return; }
+      const corredorId = document.getElementById('caixa-corredor').value;
+      const estanteId = document.getElementById('caixa-estante').value;
+      const prateleiraId = document.getElementById('caixa-prateleira').value;
+      const capacidade = parseInt(document.getElementById('caixa-capacidade').value, 10);
+      if (!salaId || !corredorId || !estanteId || !prateleiraId || !codigo || !capacidade) {
+        U.toast('Preencha sala, corredor, estante, prateleira, código e capacidade.', 'warning');
+        return;
+      }
       try {
         await SGA_API.insert('caixas', {
           codigo,
           sala_id: salaId,
-          estante_id: document.getElementById('caixa-estante').value || null,
-          prateleira_id: document.getElementById('caixa-prateleira').value || null,
-          capacidade: parseInt(document.getElementById('caixa-capacidade').value, 10) || 50,
+          estante_id: estanteId,
+          prateleira_id: prateleiraId,
+          capacidade,
           descricao: null,
         });
         U.toast('Caixa cadastrada!', 'success');
@@ -1000,6 +1039,16 @@
         loadCaixasTable();
         loadCaixasNoSelect();
       } catch (err) { U.toast(err.message, 'error'); }
+    });
+
+    // Caixa: corredor da sala escolhida; estantes filtradas por sala/corredor
+    document.getElementById('caixa-sala').addEventListener('change', () => {
+      document.getElementById('caixa-corredor').value = '';
+      fillCorredoresDo('caixa-sala', 'caixa-corredor');
+      fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
+    });
+    document.getElementById('caixa-corredor').addEventListener('change', () => {
+      fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
     });
 
     // Carregamentos iniciais
@@ -1042,25 +1091,77 @@
     });
   }
 
+  let corredoresCache = [];
+  let estantesCache = [];
+
   async function loadLocalSelects() {
     try {
-      const [salas, estantes, prat] = await Promise.all([
+      const [salas, estantes, prat, corr] = await Promise.all([
         SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao'),
-        SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao'),
+        // corredor_id so existe apos o 10_corredores.sql; sem ele, refaz sem a coluna
+        SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id,corredor_id')
+          .catch(() => SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => [])),
         SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao'),
+        // tabela nova: se ainda não existe no banco, segue com lista vazia
+        SGA_API.list('corredores', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => []),
       ]);
+
+      corredoresCache = corr || [];
+      estantesCache = estantes || [];
 
       fillSelect('estante-sala', salas, 'Selecione a sala…');
       fillSelect('caixa-sala', salas, 'Selecione a sala…');
-      fillSelect('prat-estante', estantes, 'Selecione a estante…');
+      fillSelect('corredor-sala', salas, 'Selecione a sala…');
+      fillSelect('prat-sala', salas, 'Selecione a sala…');
 
-      // Estantes filtradas pela sala escolhida na caixa (simples: preenche tudo)
-      fillSelect('caixa-estante', estantes, 'Selecione…');
       fillSelect('caixa-prateleira', prat, 'Selecione…');
+
+      fillCorredoresDaSala();
+      fillCorredoresDo('prat-sala', 'prat-corredor');
+      fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
+      fillCorredoresDo('caixa-sala', 'caixa-corredor');
+      fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
     } catch (err) {
       // silencioso no carregamento inicial (tabelas podem ainda não existir)
       console.warn('loadLocalSelects:', err.message);
     }
+  }
+
+  /**
+   * Preenche o select de corredores da estante apenas com os
+   * corredores da sala selecionada (reset na troca de sala).
+   */
+  function fillCorredoresDaSala() {
+    const selCorr = document.getElementById('estante-corredor');
+    if (selCorr) selCorr.value = '';
+    fillCorredoresDo('estante-sala', 'estante-corredor');
+  }
+
+  /** Select de corredores de um formulario: filtrado pela sala escolhida. */
+  function fillCorredoresDo(salaSelId, corrSelId) {
+    const selSala = document.getElementById(salaSelId);
+    const selCorr = document.getElementById(corrSelId);
+    if (!selSala || !selCorr) return;
+    const salaId = selSala.value;
+    const ops = corredoresCache.filter(c => String(c.sala_id) === String(salaId));
+    fillSelect(corrSelId, ops, 'Selecione o corredor…');
+  }
+
+  /**
+   * Select de estantes de um formulario: os da sala escolhida; com
+   * corredor selecionado, os daquele corredor (mais as ainda sem corredor).
+   */
+  function fillEstantesDo(salaSelId, corrSelId, estSelId) {
+    const selSala = document.getElementById(salaSelId);
+    const selCorr = document.getElementById(corrSelId);
+    const selEst = document.getElementById(estSelId);
+    if (!selSala || !selCorr || !selEst) return;
+    const salaId = selSala.value;
+    const corredorId = selCorr.value;
+    const ops = estantesCache.filter(e =>
+      String(e.sala_id) === String(salaId) &&
+      (!corredorId || !e.corredor_id || String(e.corredor_id) === String(corredorId)));
+    fillSelect(estSelId, ops, 'Selecione a estante…');
   }
 
   function fillSelect(id, rows, placeholder) {
@@ -1070,6 +1171,8 @@
     sel.innerHTML = `<option value="">${U.esc(placeholder)}</option>` +
       (rows || []).map(r => `<option value="${U.esc(r.id)}">${U.esc(r.codigo)}${r.descricao ? ' — ' + U.esc(r.descricao) : ''}</option>`).join('');
     if (current) sel.value = current;
+    // valor antigo não existe mais (ex.: troca de filtro): volta ao placeholder
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
   }
 
   async function loadCaixasNoSelect() {
