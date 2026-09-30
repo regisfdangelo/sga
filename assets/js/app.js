@@ -677,7 +677,7 @@
   function showDocDetails(d) {
     const rows = [
       ['Protocolo', `<strong>${U.esc(d.protocolo)}</strong>`],
-      ['Descrição', U.esc(d.descricao)],
+      ['Nome', U.esc(d.descricao)],
       ['Tipo', U.esc(d.tipo)],
       ['Setor', U.esc(d.setor)],
       ['Categoria', U.esc(d.categoria || '—')],
@@ -750,8 +750,8 @@
           <input type="text" id="ed-protocolo" value="${U.esc(d.protocolo)}" disabled>
         </div>
         <div class="form-group">
-          <label for="ed-descricao">Descrição *</label>
-          <textarea id="ed-descricao" rows="2" maxlength="500">${U.esc(d.descricao)}</textarea>
+          <label for="ed-descricao">Nome *</label>
+          <input type="text" id="ed-descricao" maxlength="500" value="${U.esc(d.descricao)}">
           <span class="field-error" id="error-ed-descricao" role="alert"></span>
         </div>
         <div class="form-group">
@@ -785,7 +785,7 @@
           <span class="field-error" id="error-ed-caixa" role="alert"></span>
         </div>
         <div class="form-group">
-          <label for="ed-observacoes">Observações *</label>
+          <label for="ed-observacoes">Observações</label>
           <textarea id="ed-observacoes" rows="2" maxlength="1000">${U.esc(d.observacoes || '')}</textarea>
           <span class="field-error" id="error-ed-observacoes" role="alert"></span>
         </div>
@@ -817,14 +817,13 @@
       const observacoes = document.getElementById('ed-observacoes').value.trim();
 
       let ok = true;
-      if (!descricao) { U.setError('ed-descricao', 'A descrição é obrigatória.'); ok = false; }
+      if (!descricao) { U.setError('ed-descricao', 'O nome é obrigatório.'); ok = false; }
       if (!tipo) { U.setError('ed-tipo', 'Informe o tipo.'); ok = false; }
       if (!setor) { U.setError('ed-setor', 'Selecione o setor.'); ok = false; }
       if (!categoria) { U.setError('ed-categoria', 'Selecione a categoria.'); ok = false; }
       if (!dataDoc) { U.setError('ed-data', 'Informe a data do documento.'); ok = false; }
       if (!prazo) { U.setError('ed-prazo', 'Informe o prazo de guarda.'); ok = false; }
       if (!caixa) { U.setError('ed-caixa', 'Selecione a caixa/localização.'); ok = false; }
-      if (!observacoes) { U.setError('ed-observacoes', 'As observações são obrigatórias.'); ok = false; }
       if (!ok) return;
 
       const btn = document.getElementById('btn-salvar-edicao');
@@ -888,14 +887,13 @@
       const caixa = document.getElementById('doc-caixa').value;
       const observacoes = document.getElementById('doc-observacoes').value.trim();
 
-      if (!descricao) { U.setError('doc-descricao', 'A descrição é obrigatória.'); ok = false; }
+      if (!descricao) { U.setError('doc-descricao', 'O nome é obrigatório.'); ok = false; }
       if (!tipo) { U.setError('doc-tipo', 'Informe o tipo.'); ok = false; }
       if (!setor) { U.setError('doc-setor', 'Selecione o setor.'); ok = false; }
       if (!categoria) { U.setError('doc-categoria', 'Selecione a categoria.'); ok = false; }
       if (!dataDoc) { U.setError('doc-data', 'Informe a data do documento.'); ok = false; }
       if (!prazo) { U.setError('doc-prazo', 'Informe o prazo de guarda.'); ok = false; }
       if (!caixa) { U.setError('doc-caixa', 'Selecione a caixa/localização.'); ok = false; }
-      if (!observacoes) { U.setError('doc-observacoes', 'As observações são obrigatórias.'); ok = false; }
       if (!ok) return;
 
       const btn = document.getElementById('btn-salvar-doc');
