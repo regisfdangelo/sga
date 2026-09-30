@@ -377,7 +377,7 @@
           <div class="tab-panel" id="tab-local">
             <div class="grid-2col">
               <article class="panel">
-                <header class="panel-header"><h3>Nova Sala</h3></header>
+                <header class="panel-header"><h3>Sala</h3></header>
                 <div class="panel-body">
                   <form id="form-sala" class="form-stack" novalidate>
                     <div class="form-group">
@@ -388,13 +388,17 @@
                       <label for="sala-descricao">Descrição</label>
                       <input type="text" id="sala-descricao" maxlength="120" placeholder="Ex.: Arquivo Central">
                     </div>
+                    <div class="form-group">
+                      <label for="sala-capacidade">Capacidade (estantes) *</label>
+                      <input type="number" id="sala-capacidade" required min="1" max="999" value="50">
+                    </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
                 </div>
               </article>
 
               <article class="panel">
-                <header class="panel-header"><h3>Novo Corredor</h3></header>
+                <header class="panel-header"><h3>Corredor</h3></header>
                 <div class="panel-body">
                   <form id="form-corredor" class="form-stack" novalidate>
                     <div class="form-group">
@@ -409,13 +413,17 @@
                       <label for="corredor-descricao">Descrição</label>
                       <input type="text" id="corredor-descricao" maxlength="120" placeholder="Ex.: Corredor Norte">
                     </div>
+                    <div class="form-group">
+                      <label for="corredor-capacidade">Capacidade (estantes) *</label>
+                      <input type="number" id="corredor-capacidade" required min="1" max="999" value="50">
+                    </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
                 </div>
               </article>
 
               <article class="panel">
-                <header class="panel-header"><h3>Nova Estante</h3></header>
+                <header class="panel-header"><h3>Estante</h3></header>
                 <div class="panel-body">
                   <form id="form-estante" class="form-stack" novalidate>
                     <div class="form-group">
@@ -434,13 +442,17 @@
                       <label for="estante-descricao">Descrição</label>
                       <input type="text" id="estante-descricao" maxlength="120">
                     </div>
+                    <div class="form-group">
+                      <label for="estante-capacidade">Capacidade (caixas) *</label>
+                      <input type="number" id="estante-capacidade" required min="1" max="999" value="50">
+                    </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
                 </div>
               </article>
 
               <article class="panel">
-                <header class="panel-header"><h3>Nova Prateleira</h3></header>
+                <header class="panel-header"><h3>Prateleira</h3></header>
                 <div class="panel-body">
                   <form id="form-prateleira" class="form-stack" novalidate>
                     <div class="form-group">
@@ -463,13 +475,17 @@
                       <label for="prat-descricao">Descrição</label>
                       <input type="text" id="prat-descricao" maxlength="120">
                     </div>
+                    <div class="form-group">
+                      <label for="prat-capacidade">Capacidade (caixas) *</label>
+                      <input type="number" id="prat-capacidade" required min="1" max="999" value="50">
+                    </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
                 </div>
               </article>
 
               <article class="panel">
-                <header class="panel-header"><h3>Nova Caixa</h3></header>
+                <header class="panel-header"><h3>Caixa</h3></header>
                 <div class="panel-body">
                   <form id="form-caixa" class="form-stack" novalidate>
                     <div class="form-group">

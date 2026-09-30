@@ -951,10 +951,11 @@
       e.preventDefault();
       const salaId = document.getElementById('corredor-sala').value;
       const codigo = document.getElementById('corredor-codigo').value.trim();
-      if (!salaId || !codigo) { U.toast('Preencha sala e código.', 'warning'); return; }
+      const capacidade = parseInt(document.getElementById('corredor-capacidade').value, 10);
+      if (!salaId || !codigo || !capacidade) { U.toast('Preencha sala, código e capacidade.', 'warning'); return; }
       try {
         await SGA_API.insert('corredores', {
-          codigo, sala_id: salaId,
+          codigo, sala_id: salaId, capacidade,
           descricao: document.getElementById('corredor-descricao').value.trim() || null,
         });
         U.toast('Corredor cadastrado!', 'success');
@@ -968,10 +969,11 @@
       const salaId = document.getElementById('estante-sala').value;
       const corredorId = document.getElementById('estante-corredor').value;
       const codigo = document.getElementById('estante-codigo').value.trim();
-      if (!salaId || !corredorId || !codigo) { U.toast('Preencha sala, corredor e código.', 'warning'); return; }
+      const capacidade = parseInt(document.getElementById('estante-capacidade').value, 10);
+      if (!salaId || !corredorId || !codigo || !capacidade) { U.toast('Preencha sala, corredor, código e capacidade.', 'warning'); return; }
       try {
         await SGA_API.insert('estantes', {
-          codigo, sala_id: salaId, corredor_id: corredorId,
+          codigo, sala_id: salaId, corredor_id: corredorId, capacidade,
           descricao: document.getElementById('estante-descricao').value.trim() || null,
         });
         U.toast('Estante cadastrada!', 'success');
@@ -989,10 +991,14 @@
       const corredorId = document.getElementById('prat-corredor').value;
       const estanteId = document.getElementById('prat-estante').value;
       const codigo = document.getElementById('prat-codigo').value.trim();
-      if (!salaId || !corredorId || !estanteId || !codigo) { U.toast('Preencha sala, corredor, estante e código.', 'warning'); return; }
+      const capacidade = parseInt(document.getElementById('prat-capacidade').value, 10);
+      if (!salaId || !corredorId || !estanteId || !codigo || !capacidade) {
+        U.toast('Preencha sala, corredor, estante, código e capacidade.', 'warning');
+        return;
+      }
       try {
         await SGA_API.insert('prateleiras', {
-          codigo, estante_id: estanteId,
+          codigo, estante_id: estanteId, capacidade,
           descricao: document.getElementById('prat-descricao').value.trim() || null,
         });
         U.toast('Prateleira cadastrada!', 'success');
@@ -1081,6 +1087,7 @@
           el.value.trim() || null;
       });
       if (!data.codigo) { U.toast('Informe o código.', 'warning'); return; }
+      if ('capacidade' in data && !data.capacidade) { U.toast('Informe a capacidade.', 'warning'); return; }
       try {
         await SGA_API.insert(table, data);
         form.reset();

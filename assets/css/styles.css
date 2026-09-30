@@ -586,55 +586,71 @@ a { color: var(--primary); }
 #section-painel .data-table td { padding: .5rem .75rem; }
 
 /* ============================================================
-   ABA "SALAS DE ARQUIVO" — compacta para notebook 14" (1366x768)
-   As 4 seções (Sala, Estante, Prateleira, Caixa) ficam em uma
-   única linha, com texto menor e botões alinhados no rodapé
-   (mesma linha horizontal nas 4 colunas).
+   ABA "SALAS DE ARQUIVO" — sem barra de rolagem vertical (14")
+   Cada seção (Sala, Corredor, Estante, Prateleira, Caixa) ocupa
+   uma linha inteira, uma embaixo da outra: título em negrito
+   ACIMA dos campos e o botão Salvar no fim da linha de campos.
    ============================================================ */
 #tab-local .grid-2col {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0 1rem;
+  grid-template-columns: 1fr;
+  gap: 0;
 }
 
 #tab-local .panel,
 #tab-pesquisa .panel { margin-bottom: 1rem; }
 
-#tab-local .panel-header,
 #tab-pesquisa .panel-header { padding: .6rem 1rem; }
-#tab-local .panel-header h3,
 #tab-pesquisa .panel-header h3 { font-size: .92rem; }
 
-/* Cadeia flex: painel -> body -> form com altura igual,
-   empurrando o botão para o mesmo rodapé nas 4 colunas */
+/* Título acima da linha de campos, faixa compacta (sem linha cinza) */
 #tab-local .grid-2col .panel {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 1rem;
+  display: block;
+  margin-bottom: .45rem;
+}
+#tab-local .grid-2col .panel:last-child { margin-bottom: 0; }
+#tab-local .grid-2col .panel-header {
+  padding: .32rem .9rem;
+  border-bottom: none;
+}
+#tab-local .grid-2col .panel-header h3 {
+  font-size: .84rem;
+  line-height: 1.25;
 }
 #tab-local .grid-2col .panel-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: .85rem 1rem;
-}
-#tab-local .grid-2col .form-stack {
-  flex: 1;
-  gap: .5rem;
-}
-#tab-local .grid-2col .btn {
-  margin-top: auto;
-  align-self: stretch;
-  padding: .5rem .8rem;
-  font-size: .88rem;
+  padding: .4rem .9rem .5rem;
 }
 
+/* Linha de campos: lado a lado (quebram só se não couberem),
+   com o botão Salvar encostado no final da linha */
+#tab-local .grid-2col .form-stack {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .4rem .7rem;
+}
+#tab-local .grid-2col .form-stack .form-group {
+  flex: 1 1 150px;
+  min-width: 140px;
+}
+#tab-local .grid-2col .form-stack .btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: flex-end;
+  padding: .45rem 1.1rem;
+  font-size: .85rem;
+}
+
+/* Abas da seção Cadastro um pouco mais baixas (ganho vertical) */
+#section-cadastro .tabs { margin-bottom: .9rem; }
+
 /* Texto e campos reduzidos */
-#tab-local .form-group { gap: .2rem; }
-#tab-local .form-group label { font-size: .78rem; }
+#tab-local .form-group { gap: .15rem; }
+#tab-local .form-group label { font-size: .75rem; }
 #tab-local .form-group input,
 #tab-local .form-group select {
-  padding: .45rem .6rem;
-  font-size: .88rem;
+  padding: .4rem .55rem;
+  font-size: .85rem;
 }
 #tab-local .data-table,
 #tab-pesquisa .data-table { font-size: .84rem; }
@@ -658,13 +674,6 @@ td.cell-local { white-space: nowrap; }
   #table-pesquisa td { padding: .4rem .5rem; }
   #table-pesquisa .table-actions { gap: .3rem; }
   #table-pesquisa .table-actions .btn { padding: .3rem .55rem; font-size: .76rem; }
-}
-
-@media (max-width: 1100px) {
-  #tab-local .grid-2col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 560px) {
-  #tab-local .grid-2col { grid-template-columns: 1fr; }
 }
 
 .protocol-preview {
