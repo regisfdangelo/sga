@@ -292,6 +292,32 @@ const SGA_API = (() => {
   }
 
   /* ----------------------------------------------------------
+     Códigos automáticos das localizações (SL-001, C-001,
+     E-001, P-0001, CX-000001). Assim como o protocolo, a
+     sequência é reservada SOMENTE pelo banco (advisory lock)
+     — sql/13_codigos_automaticos.sql.
+     ---------------------------------------------------------- */
+  const RE_CODIGO_AUTO = /^[A-Z]+-\d+$/;
+
+  async function gerarCodigo(chave) {
+    const r = await request('POST', '/rest/v1/rpc/gerar_codigo', { p_chave: chave });
+    if (!r || !RE_CODIGO_AUTO.test(String(r))) {
+      throw new Error('RPC gerar_codigo ausente. Execute sql/13_codigos_automaticos.sql no banco.');
+    }
+    return String(r);
+  }
+
+  /** Próximo código — apenas para exibição, NÃO consome a sequência. */
+  async function proximoCodigo(chave) {
+    try {
+      const r = await request('POST', '/rest/v1/rpc/proximo_codigo', { p_chave: chave });
+      return r && RE_CODIGO_AUTO.test(String(r)) ? String(r) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /* ----------------------------------------------------------
      Consultas de domínio
      ---------------------------------------------------------- */
 
@@ -432,6 +458,8 @@ const SGA_API = (() => {
     remove,
     gerarProtocolo,
     proximoProtocolo,
+    gerarCodigo,
+    proximoCodigo,
     getMetricas,
     searchDocumentos,
     listarUsuarios,

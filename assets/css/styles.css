@@ -652,6 +652,12 @@ a { color: var(--primary); }
   padding: .4rem .55rem;
   font-size: .85rem;
 }
+/* Código gerado automaticamente (somente leitura) */
+#tab-local .form-group input[readonly] {
+  background: var(--bg);
+  cursor: default;
+  letter-spacing: .03em;
+}
 #tab-local .data-table,
 #tab-pesquisa .data-table { font-size: .84rem; }
 #tab-local .data-table td,

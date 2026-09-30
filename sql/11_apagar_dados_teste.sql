@@ -59,13 +59,17 @@ BEGIN
 END $$;
 
 -- ------------------------------------------------------------
--- 3) Zera a sequencia de protocolo (proximo volta a AAAA-000001;
---    gerar_protocolo() recria a linha do ano a partir de max())
+-- 3) Zera as sequencias (protocolo volta a AAAA-000001 e os
+--    codigos das localizacoes voltam ao inicio: SL-001, C-001,
+--    E-001, P-0001, CX-000001)
 -- ------------------------------------------------------------
 DO $$
 BEGIN
   IF to_regclass('public.protocolo_sequencia') IS NOT NULL THEN
     DELETE FROM public.protocolo_sequencia;
+  END IF;
+  IF to_regclass('public.codigo_sequencia') IS NOT NULL THEN
+    DELETE FROM public.codigo_sequencia;
   END IF;
 END $$;
 

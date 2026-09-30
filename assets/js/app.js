@@ -871,6 +871,9 @@
     // Próximo protocolo
     refreshProtocolo();
 
+    // Próximos códigos das localizações (SL-001, C-001, ...)
+    refreshCodigos();
+
     // ---------- Documento ----------
     const formDoc = document.getElementById('form-documento');
     formDoc.addEventListener('submit', async e => {
@@ -945,15 +948,16 @@
     bindSimpleForm('form-sala', 'salas', () => {
       U.toast('Sala cadastrada!', 'success');
       loadLocalSelects();
-    });
+      refreshCodigos();
+    }, 'salas');
 
     document.getElementById('form-corredor').addEventListener('submit', async e => {
       e.preventDefault();
       const salaId = document.getElementById('corredor-sala').value;
-      const codigo = document.getElementById('corredor-codigo').value.trim();
       const capacidade = parseInt(document.getElementById('corredor-capacidade').value, 10);
-      if (!salaId || !codigo || !capacidade) { U.toast('Preencha sala, código e capacidade.', 'warning'); return; }
+      if (!salaId || !capacidade) { U.toast('Preencha sala e capacidade.', 'warning'); return; }
       try {
+        const codigo = await SGA_API.gerarCodigo('corredores');
         await SGA_API.insert('corredores', {
           codigo, sala_id: salaId, capacidade,
           descricao: document.getElementById('corredor-descricao').value.trim() || null,
@@ -961,6 +965,7 @@
         U.toast('Corredor cadastrado!', 'success');
         e.target.reset();
         loadLocalSelects();
+        refreshCodigos();
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
@@ -968,10 +973,10 @@
       e.preventDefault();
       const salaId = document.getElementById('estante-sala').value;
       const corredorId = document.getElementById('estante-corredor').value;
-      const codigo = document.getElementById('estante-codigo').value.trim();
       const capacidade = parseInt(document.getElementById('estante-capacidade').value, 10);
-      if (!salaId || !corredorId || !codigo || !capacidade) { U.toast('Preencha sala, corredor, código e capacidade.', 'warning'); return; }
+      if (!salaId || !corredorId || !capacidade) { U.toast('Preencha sala, corredor e capacidade.', 'warning'); return; }
       try {
+        const codigo = await SGA_API.gerarCodigo('estantes');
         await SGA_API.insert('estantes', {
           codigo, sala_id: salaId, corredor_id: corredorId, capacidade,
           descricao: document.getElementById('estante-descricao').value.trim() || null,
@@ -979,6 +984,7 @@
         U.toast('Estante cadastrada!', 'success');
         e.target.reset();
         loadLocalSelects();
+        refreshCodigos();
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
@@ -990,13 +996,13 @@
       const salaId = document.getElementById('prat-sala').value;
       const corredorId = document.getElementById('prat-corredor').value;
       const estanteId = document.getElementById('prat-estante').value;
-      const codigo = document.getElementById('prat-codigo').value.trim();
       const capacidade = parseInt(document.getElementById('prat-capacidade').value, 10);
-      if (!salaId || !corredorId || !estanteId || !codigo || !capacidade) {
-        U.toast('Preencha sala, corredor, estante, código e capacidade.', 'warning');
+      if (!salaId || !corredorId || !estanteId || !capacidade) {
+        U.toast('Preencha sala, corredor, estante e capacidade.', 'warning');
         return;
       }
       try {
+        const codigo = await SGA_API.gerarCodigo('prateleiras');
         await SGA_API.insert('prateleiras', {
           codigo, estante_id: estanteId, capacidade,
           descricao: document.getElementById('prat-descricao').value.trim() || null,
@@ -1004,6 +1010,7 @@
         U.toast('Prateleira cadastrada!', 'success');
         e.target.reset();
         loadLocalSelects();
+        refreshCodigos();
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
@@ -1019,17 +1026,17 @@
 
     document.getElementById('form-caixa').addEventListener('submit', async e => {
       e.preventDefault();
-      const codigo = document.getElementById('caixa-codigo').value.trim();
       const salaId = document.getElementById('caixa-sala').value;
       const corredorId = document.getElementById('caixa-corredor').value;
       const estanteId = document.getElementById('caixa-estante').value;
       const prateleiraId = document.getElementById('caixa-prateleira').value;
       const capacidade = parseInt(document.getElementById('caixa-capacidade').value, 10);
-      if (!salaId || !corredorId || !estanteId || !prateleiraId || !codigo || !capacidade) {
-        U.toast('Preencha sala, corredor, estante, prateleira, código e capacidade.', 'warning');
+      if (!salaId || !corredorId || !estanteId || !prateleiraId || !capacidade) {
+        U.toast('Preencha sala, corredor, estante, prateleira e capacidade.', 'warning');
         return;
       }
       try {
+        const codigo = await SGA_API.gerarCodigo('caixas');
         await SGA_API.insert('caixas', {
           codigo,
           sala_id: salaId,
@@ -1044,6 +1051,7 @@
         loadLocalSelects();
         loadCaixasTable();
         loadCaixasNoSelect();
+        refreshCodigos();
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
@@ -1074,7 +1082,7 @@
     }
   }
 
-  function bindSimpleForm(formId, table, onSuccess) {
+  function bindSimpleForm(formId, table, onSuccess, chaveCodigo) {
     const form = document.getElementById(formId);
     if (!form) return;
     form.addEventListener('submit', async e => {
@@ -1086,8 +1094,17 @@
         data[key === 'codigo' ? 'codigo' : key === 'descricao' ? 'descricao' : key] =
           el.value.trim() || null;
       });
-      if (!data.codigo) { U.toast('Informe o código.', 'warning'); return; }
+      // Código vem da sequência do banco (campo somente leitura na tela)
+      if (!chaveCodigo && !data.codigo) { U.toast('Informe o código.', 'warning'); return; }
       if ('capacidade' in data && !data.capacidade) { U.toast('Informe a capacidade.', 'warning'); return; }
+      if (chaveCodigo) {
+        try {
+          data.codigo = await SGA_API.gerarCodigo(chaveCodigo);
+        } catch (err) {
+          U.toast(err.message, 'error');
+          return;
+        }
+      }
       try {
         await SGA_API.insert(table, data);
         form.reset();
@@ -1096,6 +1113,27 @@
         U.toast(err.message, 'error');
       }
     });
+  }
+
+  /**
+   * Exibe nos campos de Código (somente leitura) o proximo codigo
+   * de cada sequencia (SL-001, C-001, E-001, P-0001, CX-000001).
+   * Apenas visualizacao: quem consome e' o submit (gerar_codigo).
+   */
+  async function refreshCodigos() {
+    const mapa = [
+      ['sala-codigo', 'salas'],
+      ['corredor-codigo', 'corredores'],
+      ['estante-codigo', 'estantes'],
+      ['prat-codigo', 'prateleiras'],
+      ['caixa-codigo', 'caixas'],
+    ];
+    await Promise.all(mapa.map(async ([id, chave]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const cod = await SGA_API.proximoCodigo(chave);
+      if (cod) el.value = cod;
+    }));
   }
 
   let corredoresCache = [];
