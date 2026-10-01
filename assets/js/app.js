@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20260929.20';
+  const VERSAO_APP = '20261001.4';
 
   /* ============================================================
      UTILITÁRIOS
@@ -737,10 +737,13 @@
 
     let caixas = [];
     try {
-      caixas = await SGA_API.list('caixas', '&order=codigo&limit=500', 'id,codigo,descricao');
+      caixas = await SGA_API.list('caixas', '&order=codigo&limit=500',
+        'id,codigo,descricao,prateleira:prateleiras(codigo)');
     } catch { /* mantém lista vazia */ }
+    // com a sequencia por prateleira, o mesmo CX-000001 se repete:
+    // o codigo da prateleira desambigua a opcao
     const opsCaixa = (caixas || [])
-      .map(c => `<option value="${U.esc(c.id)}">${U.esc(c.codigo)}${c.descricao ? ' — ' + U.esc(c.descricao) : ''}</option>`)
+      .map(c => `<option value="${U.esc(c.id)}">${U.esc(c.codigo)}${c.prateleira?.codigo ? ' (' + U.esc(c.prateleira.codigo) + ')' : ''}${c.descricao ? ' — ' + U.esc(c.descricao) : ''}</option>`)
       .join('');
 
     Modal.open(`Editar documento ${d.protocolo}`, `
@@ -872,6 +875,8 @@
     refreshProtocolo();
 
     // Próximos códigos das localizações (SL-001, C-001, ...)
+    // Corredor, estante, prateleira e caixa dependem do que foi
+    // selecionado (ver refreshCodigos)
     refreshCodigos();
 
     // ---------- Documento ----------
@@ -959,7 +964,7 @@
       const capacidade = parseInt(document.getElementById('corredor-capacidade').value, 10);
       if (!salaId || !capacidade) { U.toast('Preencha sala e capacidade.', 'warning'); return; }
       try {
-        const codigo = await SGA_API.gerarCodigo('corredores');
+        const codigo = await SGA_API.gerarCodigo('corredores', salaId);
         await SGA_API.insert('corredores', {
           codigo, sala_id: salaId, capacidade,
           descricao: document.getElementById('corredor-descricao').value.trim() || null,
@@ -971,6 +976,10 @@
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
+    // Corredor: a sequência é POR SALA, então o próximo código só
+    // existe depois que a sala é escolhida (ou trocada).
+    document.getElementById('corredor-sala').addEventListener('change', refreshCodigoCorredor);
+
     document.getElementById('form-estante').addEventListener('submit', async e => {
       e.preventDefault();
       const salaId = document.getElementById('estante-sala').value;
@@ -979,7 +988,7 @@
       if (!salaId || !corredorId || !capacidade) { U.toast('Preencha sala, corredor e capacidade.', 'warning'); return; }
       if (capacidade > 8) { U.toast('Capacidade máxima: 8 prateleiras por estante.', 'warning'); return; }
       try {
-        const codigo = await SGA_API.gerarCodigo('estantes');
+        const codigo = await SGA_API.gerarCodigo('estantes', [salaId, corredorId]);
         await SGA_API.insert('estantes', {
           codigo, sala_id: salaId, corredor_id: corredorId, capacidade,
           descricao: document.getElementById('estante-descricao').value.trim() || null,
@@ -991,8 +1000,14 @@
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
-    // Corredores da estante: refiltra quando a sala muda
-    document.getElementById('estante-sala').addEventListener('change', fillCorredoresDaSala);
+    // Estante: a sequência é POR SALA + CORREDOR, então o próximo
+    // código só existe com os dois selecionados (e ao trocar um
+    // dos dois). A troca de sala limpa o corredor na cascata.
+    document.getElementById('estante-sala').addEventListener('change', () => {
+      fillCorredoresDaSala();
+      refreshCodigoEstante();
+    });
+    document.getElementById('estante-corredor').addEventListener('change', refreshCodigoEstante);
 
     document.getElementById('form-prateleira').addEventListener('submit', async e => {
       e.preventDefault();
@@ -1013,7 +1028,7 @@
           U.toast('Estante já possui o máximo de 8 prateleiras.', 'warning');
           return;
         }
-        const codigo = await SGA_API.gerarCodigo('prateleiras');
+        const codigo = await SGA_API.gerarCodigo('prateleiras', estanteId);
         await SGA_API.insert('prateleiras', {
           codigo, estante_id: estanteId, capacidade,
           descricao: document.getElementById('prat-descricao').value.trim() || null,
@@ -1030,10 +1045,15 @@
       document.getElementById('prat-corredor').value = '';
       fillCorredoresDo('prat-sala', 'prat-corredor');
       fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
+      refreshCodigoPrateleira();
     });
     document.getElementById('prat-corredor').addEventListener('change', () => {
       fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
+      refreshCodigoPrateleira();
     });
+    // Prateleira: a sequencia e POR SALA + CORREDOR + ESTANTE, entao o
+    // proximo codigo so existe com os tres selecionados.
+    document.getElementById('prat-estante').addEventListener('change', refreshCodigoPrateleira);
 
     document.getElementById('form-caixa').addEventListener('submit', async e => {
       e.preventDefault();
@@ -1055,7 +1075,7 @@
           U.toast('Prateleira já possui o máximo de 6 caixas.', 'warning');
           return;
         }
-        const codigo = await SGA_API.gerarCodigo('caixas');
+        const codigo = await SGA_API.gerarCodigo('caixas', prateleiraId);
         await SGA_API.insert('caixas', {
           codigo,
           sala_id: salaId,
@@ -1073,15 +1093,26 @@
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
-    // Caixa: corredor da sala escolhida; estantes filtradas por sala/corredor
+    // Caixa: cascata Sala -> Corredor -> Estante -> Prateleira
     document.getElementById('caixa-sala').addEventListener('change', () => {
       document.getElementById('caixa-corredor').value = '';
       fillCorredoresDo('caixa-sala', 'caixa-corredor');
       fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
+      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
+      refreshCodigoCaixa();
     });
     document.getElementById('caixa-corredor').addEventListener('change', () => {
       fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
+      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
+      refreshCodigoCaixa();
     });
+    document.getElementById('caixa-estante').addEventListener('change', () => {
+      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
+      refreshCodigoCaixa();
+    });
+    // Caixa: a sequencia e POR SALA + CORREDOR + ESTANTE + PRATELEIRA,
+    // entao o proximo codigo so existe com os quatro selecionados.
+    document.getElementById('caixa-prateleira').addEventListener('change', refreshCodigoCaixa);
 
     // Aba Pesquisa: navegador da sala selecionada (capacidade x ocupação)
     document.getElementById('pesq-sala').addEventListener('change', mostrarInfoSalaPesquisa);
@@ -1140,16 +1171,16 @@
 
   /**
    * Exibe nos campos de Código (somente leitura) o proximo codigo
-   * de cada sequencia (SL-001, C-001, E-001, P-0001, CX-000001).
+   * de cada sequencia global (SL-001).
    * Apenas visualizacao: quem consome e' o submit (gerar_codigo).
+   * Corredor, estante, prateleira e caixa ficam de fora: a
+   * sequencia deles e' localizada (refreshCodigoCorredor /
+   * refreshCodigoEstante / refreshCodigoPrateleira /
+   * refreshCodigoCaixa).
    */
   async function refreshCodigos() {
     const mapa = [
       ['sala-codigo', 'salas'],
-      ['corredor-codigo', 'corredores'],
-      ['estante-codigo', 'estantes'],
-      ['prat-codigo', 'prateleiras'],
-      ['caixa-codigo', 'caixas'],
     ];
     await Promise.all(mapa.map(async ([id, chave]) => {
       const el = document.getElementById(id);
@@ -1157,11 +1188,86 @@
       const cod = await SGA_API.proximoCodigo(chave);
       if (cod) el.value = cod;
     }));
+    await refreshCodigoCorredor();
+    await refreshCodigoEstante();
+    await refreshCodigoPrateleira();
+    await refreshCodigoCaixa();
+  }
+
+  /**
+   * Corredor: sequencia POR SALA (Sala A: C-001, C-002 ... Sala B:
+   * C-001 ...). Sem sala escolhida nao ha proximo codigo a exibir,
+   * entao o campo fica vazio.
+   */
+  async function refreshCodigoCorredor() {
+    const el = document.getElementById('corredor-codigo');
+    const sel = document.getElementById('corredor-sala');
+    if (!el || !sel) return;
+    const salaId = sel.value;
+    if (!salaId) { el.value = ''; return; }
+    const cod = await SGA_API.proximoCodigo('corredores', salaId);
+    el.value = cod || '';
+  }
+
+  /**
+   * Estante: sequencia POR SALA + CORREDOR (Sala A / Corr 1:
+   * E-001, E-002 ... Sala A / Corr 2: E-001 ...). Sem os dois
+   * selecionados nao ha proximo codigo a exibir.
+   */
+  async function refreshCodigoEstante() {
+    const el = document.getElementById('estante-codigo');
+    const selSala = document.getElementById('estante-sala');
+    const selCorr = document.getElementById('estante-corredor');
+    if (!el || !selSala || !selCorr) return;
+    const salaId = selSala.value;
+    const corredorId = selCorr.value;
+    if (!salaId || !corredorId) { el.value = ''; return; }
+    const cod = await SGA_API.proximoCodigo('estantes', [salaId, corredorId]);
+    el.value = cod || '';
+  }
+
+  /**
+   * Prateleira: sequencia POR SALA + CORREDOR + ESTANTE (a
+   * prateleira so guarda o estante, e o estante ja pertence a
+   * aquela sala/corredor). Sem os tres selecionados nao ha
+   * proximo codigo a exibir.
+   */
+  async function refreshCodigoPrateleira() {
+    const el = document.getElementById('prat-codigo');
+    const selSala = document.getElementById('prat-sala');
+    const selCorr = document.getElementById('prat-corredor');
+    const selEst = document.getElementById('prat-estante');
+    if (!el || !selSala || !selCorr || !selEst) return;
+    if (!selSala.value || !selCorr.value || !selEst.value) { el.value = ''; return; }
+    const cod = await SGA_API.proximoCodigo('prateleiras', selEst.value);
+    el.value = cod || '';
+  }
+
+  /**
+   * Caixa: sequencia POR SALA + CORREDOR + ESTANTE + PRATELEIRA (a
+   * caixa so guarda a prateleira, e a prateleira ja pertence a
+   * aquela estante, corredor e sala). Sem os quatro selecionados
+   * nao ha proximo codigo a exibir.
+   */
+  async function refreshCodigoCaixa() {
+    const el = document.getElementById('caixa-codigo');
+    const selSala = document.getElementById('caixa-sala');
+    const selCorr = document.getElementById('caixa-corredor');
+    const selEst = document.getElementById('caixa-estante');
+    const selPrat = document.getElementById('caixa-prateleira');
+    if (!el || !selSala || !selCorr || !selEst || !selPrat) return;
+    if (!selSala.value || !selCorr.value || !selEst.value || !selPrat.value) {
+      el.value = '';
+      return;
+    }
+    const cod = await SGA_API.proximoCodigo('caixas', selPrat.value);
+    el.value = cod || '';
   }
 
   let corredoresCache = [];
   let estantesCache = [];
   let salasCache = [];
+  let prateleirasCache = [];
 
   async function loadLocalSelects() {
     try {
@@ -1172,7 +1278,10 @@
         // corredor_id so existe apos o 10_corredores.sql; sem ele, refaz sem a coluna
         SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id,corredor_id')
           .catch(() => SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => [])),
-        SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao'),
+        // estante_id so existe desde o cadastro por estante; sem ele,
+        // refaz sem a coluna e a cascata da caixa fica sem filtro
+        SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao,estante_id')
+          .catch(() => SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao').catch(() => [])),
         // tabela nova: se ainda não existe no banco, segue com lista vazia
         SGA_API.list('corredores', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => []),
       ]);
@@ -1180,6 +1289,7 @@
       salasCache = salas || [];
       corredoresCache = corr || [];
       estantesCache = estantes || [];
+      prateleirasCache = prat || [];
 
       fillSelect('estante-sala', salas, 'Selecione a sala…');
       fillSelect('caixa-sala', salas, 'Selecione a sala…');
@@ -1188,13 +1298,12 @@
       fillSelect('pesq-sala', salas, 'Selecione a sala…');
       fillSelect('doc-sala', salas, 'Selecione a sala…');
 
-      fillSelect('caixa-prateleira', prat, 'Selecione…');
-
       fillCorredoresDaSala();
       fillCorredoresDo('prat-sala', 'prat-corredor');
       fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
       fillCorredoresDo('caixa-sala', 'caixa-corredor');
       fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
+      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
       mostrarInfoSalaPesquisa();
       alocarCaixaPorSala();
     } catch (err) {
@@ -1268,6 +1377,21 @@
     fillSelect(estSelId, ops, 'Selecione a estante…');
   }
 
+  /**
+   * Select de prateleiras de um formulario: as da estante escolhida
+   * (mantem a cascata Sala -> Corredor -> Estante -> Prateleira).
+   * Sem estante (ou sem a coluna estante_id), mostra todas.
+   */
+  function fillPrateleirasDaEstante(estSelId, pratSelId) {
+    const selEst = document.getElementById(estSelId);
+    const selPrat = document.getElementById(pratSelId);
+    if (!selEst || !selPrat) return;
+    const estanteId = selEst.value;
+    const ops = prateleirasCache.filter(p =>
+      p.estante_id === undefined || String(p.estante_id) === String(estanteId));
+    fillSelect(pratSelId, ops, 'Selecione a prateleira…');
+  }
+
   function fillSelect(id, rows, placeholder) {
     const sel = document.getElementById(id);
     if (!sel) return;
@@ -1296,7 +1420,7 @@
     try {
       const caixas = await SGA_API.list(
         'caixas', `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo&limit=500`,
-        'id,codigo,capacidade');
+        'id,codigo,capacidade,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)');
       const conta = await contarDocumentosPorCaixa();
       const livre = (caixas || []).find(c => {
         const cap = c.capacidade === null || c.capacidade === ''
@@ -1311,7 +1435,7 @@
       const ocup = conta[livre.id] || 0;
       const cap = livre.capacidade === null || livre.capacidade === ''
         ? '—' : Number(livre.capacidade);
-      if (info) info.textContent = `Caixa alocada: ${livre.codigo} — ${ocup}/${cap} pastas`;
+      if (info) info.textContent = `Caixa alocada: ${U.locLabel(livre)} — ${ocup}/${cap} pastas`;
     } catch (err) {
       if (info) info.textContent = 'Erro ao alocar a caixa.';
       console.warn('alocarCaixaPorSala:', err.message);

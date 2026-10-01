@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20260929.20';
+  const versao = '20261001.4';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -296,21 +296,68 @@ const SGA_API = (() => {
      E-001, P-0001, CX-000001). Assim como o protocolo, a
      sequência é reservada SOMENTE pelo banco (advisory lock)
      — sql/13_codigos_automaticos.sql.
+     Corredor e estante têm sequência LOCALIZADA, por isso
+     recebem o escopo `p_escopo`:
+       corredor -> por sala            (Sala A: C-001, C-002 ...)
+       estante  -> por sala + corredor (Sala A/Corr 1: E-001 ...)
+     — sql/14_codigos_escopo_localizacoes.sql.
      ---------------------------------------------------------- */
   const RE_CODIGO_AUTO = /^[A-Z]+-\d+$/;
 
-  async function gerarCodigo(chave) {
-    const r = await request('POST', '/rest/v1/rpc/gerar_codigo', { p_chave: chave });
+  /**
+   * Escopo no formato que o banco espera: valores na ordem das
+   * colunas separados por "|". Aceita um valor só (corredor;
+   * prateleira = estante; caixa = prateleira) ou uma lista
+   * (estante: [sala, corredor]).
+   */
+  function montaEscopo(escopo) {
+    if (escopo === undefined || escopo === null || escopo === '') return '';
+    const vals = (Array.isArray(escopo) ? escopo : [escopo])
+      .filter(v => v !== undefined && v !== null);
+    return vals.length ? vals.map(String).join('|') : '';
+  }
+
+  /**
+   * `escopo` = id da sala; lista [sala, corredor] no estante;
+   * id da estante na prateleira; id da prateleira na caixa.
+   */
+  async function gerarCodigo(chave, escopo) {
+    const body = { p_chave: chave };
+    const escopoTxt = montaEscopo(escopo);
+    if (escopoTxt) body.p_escopo = escopoTxt;
+    let r;
+    try {
+      r = await request('POST', '/rest/v1/rpc/gerar_codigo', body);
+    } catch (err) {
+      // 42883 = undefined_function: o banco ainda não tem o p_escopo
+      if (body.p_escopo && (err.code === '42883' || /does not exist/i.test(err.message || ''))) {
+        throw new Error('RPC gerar_codigo sem p_escopo. Execute sql/14_codigos_escopo_localizacoes.sql no banco.');
+      }
+      // versão antiga do 14: a função rejeita p_escopo ("nao usa escopo")
+      if (body.p_escopo && /nao usa escopo|exige o escopo/i.test(err.message || '')) {
+        throw new Error('sql/14_codigos_escopo_localizacoes.sql desatualizado no banco. Execute-o novamente.');
+      }
+      throw err;
+    }
     if (!r || !RE_CODIGO_AUTO.test(String(r))) {
       throw new Error('RPC gerar_codigo ausente. Execute sql/13_codigos_automaticos.sql no banco.');
     }
     return String(r);
   }
 
-  /** Próximo código — apenas para exibição, NÃO consome a sequência. */
-  async function proximoCodigo(chave) {
+  /**
+   * Próximo código — apenas para exibição, NÃO consome a sequência.
+   * Com `escopo`, devolve o próximo código daquele escopo
+   * (sala no corredor; sala+corredor no estante; estante na
+   * prateleira; prateleira na caixa = sala+corredor+estante+
+   * prateleira).
+   */
+  async function proximoCodigo(chave, escopo) {
     try {
-      const r = await request('POST', '/rest/v1/rpc/proximo_codigo', { p_chave: chave });
+      const body = { p_chave: chave };
+      const escopoTxt = montaEscopo(escopo);
+      if (escopoTxt) body.p_escopo = escopoTxt;
+      const r = await request('POST', '/rest/v1/rpc/proximo_codigo', body);
       return r && RE_CODIGO_AUTO.test(String(r)) ? String(r) : null;
     } catch {
       return null;
