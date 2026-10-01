@@ -595,6 +595,289 @@ a { color: var(--primary); }
 #section-painel .data-table td { padding: .5rem .75rem; }
 
 /* ============================================================
+   MAPA DO ARQUIVO (PAINEL) — select de sala; ao escolher, o
+   mapa abre num pop-up em tela cheia (.mapa-popup):
+   - topo: nome da sala + legenda + botão fechar;
+   - .mapa-frame ocupa toda a área (a "sala" na tela inteira) e
+      NÃO tem barra de rolagem: o JS reduz a planta (scale) até
+      os itens preencherem a área branca;
+    - a planta é uma planta baixa, com corredores lado a lado,
+      na horizontal; em cada corredor, as 9 primeiras estantes
+      (posições 1-9) do lado esquerdo e as demais (10-18 e além)
+      do lado direito, com a rua no meio — só o que está
+      cadastrado no banco, sem vagas simuladas —
+      e, em cada estante, uma linha por PRATELEIRA com as suas
+      caixas — só a cor: verde = vazia (0%), âmbar =
+      parcial, cinza = cheia; localização e ocupação no tooltip
+      do mouse.
+    ============================================================ */
+.mapa-filtro {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+.mapa-filtro label {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.mapa-filtro select {
+  min-width: 240px;
+  padding: .45rem .6rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: .88rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.mapa-filtro select:focus {
+  outline: none;
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .18);
+}
+
+.mapa-legenda {
+  display: flex;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  margin-bottom: .9rem;
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+.legenda-item { display: inline-flex; align-items: center; gap: .45rem; }
+.mapa-legenda .mapa-quad {
+  width: 15px;
+  height: 15px;
+  font-size: 0;
+  box-shadow: none;
+}
+
+/* Pop-up em tela cheia ------------------------------------- */
+.mapa-popup[hidden] { display: none; }
+.mapa-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(15, 23, 42, .88);
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .7rem .9rem;
+  overflow: hidden;          /* sem barra de rolagem vertical */
+  animation: fadeIn .2s ease;
+}
+.mapa-popup-topo {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+}
+.mapa-popup-nome {
+  font-size: .88rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.mapa-popup-topo .mapa-legenda { margin: 0; color: #cbd5e1; }
+.mapa-popup-fechar {
+  margin-left: auto;
+  padding: .35rem .85rem;
+  border: 1px solid rgba(255, 255, 255, .4);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font: inherit;
+  font-size: .84rem;
+  cursor: pointer;
+}
+.mapa-popup-fechar:hover { background: #fff; color: var(--text); }
+.mapa-popup-corpo {
+  flex: 1;
+  min-height: 0;             /* participa do cálculo de altura da tela */
+  display: flex;
+}
+.mapa-popup .mapa-resumo { color: #e2e8f0; margin-top: .1rem; }
+
+.mapa-frame {
+  flex: 1;
+  min-height: 0;
+  border: 2px dashed rgba(255, 255, 255, .45);
+  border-radius: 14px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;          /* o mapa é reduzido para caber, sem scroll */
+}
+
+.mapa-estantes {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  width: 100%;               /* modo texto (carregando/erro) ocupa a sala inteira */
+}
+/* Planta baixa: corredores lado a lado, na horizontal; a largura
+   fica a do conteúdo para o JS medir e reduzir (scale) sem rolagem */
+.mapa-estantes.planta {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: max-content;
+  flex: 0 0 auto;            /* não encolhe no flex: a medida fica fiel */
+  align-items: stretch;      /* todos os corredores com a mesma altura */
+}
+.mapa-estantes .empty-state { width: 100%; }
+
+/* Faixa do corredor: placa em cima; abaixo, os dois lados da rua */
+.mapa-corredor {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  background: #e9eef5;
+  border: 2px dashed #94a3b8;
+  border-radius: 12px;
+  padding: .55rem .7rem .7rem;
+}
+.mapa-corredor-rotulo {
+  display: inline-block;
+  align-self: flex-start;
+  margin: 0 0 .5rem .2rem;
+  padding: .14rem .8rem;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, .3);
+}
+.mapa-corredor-lados {
+  display: flex;
+  align-items: stretch;      /* lados e rua com a mesma altura */
+  gap: .7rem;
+  flex: 1;
+}
+/* Lado do corredor: estantes empilhadas na vertical */
+.mapa-corredor-lado {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .7rem;
+  flex: 0 0 auto;
+}
+/* A rua entre os dois lados */
+.mapa-corredor-rua {
+  flex: 0 0 auto;
+  width: 30px;
+  border-left: 2px dashed #94a3b8;
+  border-right: 2px dashed #94a3b8;
+  background: #dce5f0;
+  border-radius: 6px;
+}
+
+/* Bloco da estante (prateleiras empilhadas) */
+.mapa-estante {
+  flex: 0 0 auto;
+  background: #fff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: .4rem .5rem .45rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+}
+.mapa-estante-titulo {
+  margin-bottom: .3rem;
+  padding-bottom: .2rem;
+  border-bottom: 1px dashed #e2e8f0;
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  color: #475569;
+}
+.mapa-estante-vazio {
+  padding: .4rem 0;
+  text-align: center;
+  font-size: .68rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* Linha de prateleira: rótulo + as caixas nela guardadas */
+.mapa-prateleira {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .25rem;
+}
+.mapa-prateleira:last-child { margin-bottom: 0; }
+.mapa-prat-rotulo {
+  flex: 0 0 auto;
+  min-width: 52px;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+.mapa-prat-caixas {
+  display: flex;
+  gap: .25rem;
+}
+.mapa-prat-vazia {
+  font-size: .6rem;
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.mapa-quad {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
+  cursor: help;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.mapa-quad:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(15, 23, 42, .3);
+  position: relative;
+  z-index: 1;
+}
+.mapa-quad.vazio   { background: #22c55e; }
+.mapa-quad.parcial { background: #f59e0b; }
+.mapa-quad.cheia   { background: #6b7280; }
+
+.mapa-resumo {
+  margin-top: .85rem;
+  text-align: center;
+  font-size: .83rem;
+  color: var(--text-muted);
+}
+.mapa-resumo[hidden] { display: none; }
+
+@media (max-width: 560px) {
+  .mapa-quad { width: 24px; height: 24px; }
+  .mapa-popup { padding: .5rem; }
+  .mapa-popup-topo { gap: .6rem; }
+  .mapa-filtro { width: 100%; }
+  .mapa-filtro select { min-width: 0; width: 100%; }
+}
+
+/* ============================================================
+   ABA "GERAR SALA DE ARQUIVO" — resumo ao lado do botão
+   Calcular (quantidades que serão geradas / o que foi criado).
+   ============================================================ */
+.gerar-resumo {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--text-muted);
+}
+
+/* ============================================================
    ABA "SALAS DE ARQUIVO" — sem barra de rolagem vertical (14")
    Cada seção (Sala, Corredor, Estante, Prateleira, Caixa) ocupa
    uma linha inteira, uma embaixo da outra: título em negrito

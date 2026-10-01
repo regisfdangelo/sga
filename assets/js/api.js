@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261001.4';
+  const versao = '20261001.15';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -364,6 +364,38 @@ const SGA_API = (() => {
     }
   }
 
+  /**
+   * Gera uma sala de arquivo COMPLETA (corredores, estantes,
+   * prateleiras e caixas) em uma unica transacao — aba "Gerar
+   * Sala de Arquivo". Os codigos vem da MESMA funcao
+   * gerar_codigo() do cadastro manual, com o escopo de cada
+   * nivel — sql/15_gerar_sala_arquivo.sql.
+   * Devolve { sala_id, sala_codigo, corredores, estantes,
+   *           prateleiras, caixas }.
+   */
+  async function gerarSalaArquivo({ nome, corredores, estantes, prateleiras, caixas }) {
+    let r;
+    try {
+      r = await request('POST', '/rest/v1/rpc/gerar_sala_arquivo', {
+        p_nome: nome,
+        p_corredores: corredores,
+        p_estantes: estantes,
+        p_prateleiras: prateleiras,
+        p_caixas: caixas,
+      });
+    } catch (err) {
+      // 42883 = undefined_function: o banco ainda não tem a RPC
+      if (err.code === '42883' && /gerar_sala_arquivo/i.test(err.message || '')) {
+        throw new Error('RPC gerar_sala_arquivo ausente. Execute sql/15_gerar_sala_arquivo.sql no banco.');
+      }
+      throw err;
+    }
+    if (!r || !r.sala_codigo) {
+      throw new Error('Resposta inesperada da RPC gerar_sala_arquivo. Execute sql/15_gerar_sala_arquivo.sql no banco.');
+    }
+    return r;
+  }
+
   /* ----------------------------------------------------------
      Consultas de domínio
      ---------------------------------------------------------- */
@@ -507,6 +539,7 @@ const SGA_API = (() => {
     proximoProtocolo,
     gerarCodigo,
     proximoCodigo,
+    gerarSalaArquivo,
     getMetricas,
     searchDocumentos,
     listarUsuarios,

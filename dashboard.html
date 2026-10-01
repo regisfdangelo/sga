@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261001.4">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261001.15">
 </head>
 <body class="app-page">
 
@@ -139,6 +139,23 @@
             </article>
           </div>
 
+          <!-- Mapa do arquivo: escolher a sala abre o mapa em pop-up -->
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Mapa do Arquivo</h3>
+              <div class="mapa-filtro">
+                <label for="mapa-sala">Sala de arquivo</label>
+                <select id="mapa-sala">
+                  <option value="">Selecione a sala…</option>
+                </select>
+                <button type="button" class="btn btn-primary btn-sm" id="mapa-abrir" disabled>Ver mapa</button>
+              </div>
+            </header>
+            <div class="panel-body">
+              <p class="empty-state">Selecione uma sala acima: o mapa abre em tela cheia, sem barra de rolagem.</p>
+            </div>
+          </article>
+
           <div class="grid-2col">
             <article class="panel">
               <header class="panel-header">
@@ -264,6 +281,7 @@
           <div class="tabs" role="tablist">
             <button class="tab active" data-tab="tab-documento" role="tab">Documentos</button>
             <button class="tab" data-tab="tab-local" role="tab">Salas de Arquivo</button>
+            <button class="tab" data-tab="tab-gerar" role="tab">Gerar Sala de Arquivo</button>
             <button class="tab" data-tab="tab-pesquisa" role="tab">Pesquisa</button>
           </div>
 
@@ -445,7 +463,7 @@
                       <input type="text" id="estante-descricao" maxlength="120">
                     </div>
                     <div class="form-group">
-                      <label for="estante-capacidade">Capacidade (prateleiras) *</label>
+                      <label for="estante-capacidade">Capacidade (prateleiras) * — 8 × 4 = 32 caixas</label>
                       <input type="number" id="estante-capacidade" required min="1" max="8" value="8">
                     </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
@@ -478,8 +496,8 @@
                       <input type="text" id="prat-descricao" maxlength="120">
                     </div>
                     <div class="form-group">
-                      <label for="prat-capacidade">Capacidade (caixas) *</label>
-                      <input type="number" id="prat-capacidade" required min="1" max="6" value="6">
+                      <label for="prat-capacidade">Capacidade (caixas) * — máx. 4 por prateleira, 32 por estante</label>
+                      <input type="number" id="prat-capacidade" required min="1" max="4" value="4">
                     </div>
                     <button type="submit" class="btn btn-primary">Salvar</button>
                   </form>
@@ -519,6 +537,47 @@
                 </div>
               </article>
             </div>
+          </div>
+
+          <!-- Aba Gerar Sala de Arquivo (cria sala + estrutura inteira) -->
+          <div class="tab-panel" id="tab-gerar">
+            <article class="panel">
+              <header class="panel-header"><h3>Gerar Sala de Arquivo</h3></header>
+              <div class="panel-body">
+                <form id="form-gerar-sala" novalidate>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="gerar-codigo">Código automático</label>
+                      <input type="text" id="gerar-codigo" readonly maxlength="30" placeholder="SL-001">
+                    </div>
+                    <div class="form-group">
+                      <label for="gerar-nome">Nome da Sala *</label>
+                      <input type="text" id="gerar-nome" required maxlength="120" placeholder="Ex.: Arquivo Central">
+                    </div>
+                    <div class="form-group">
+                      <label for="gerar-estantes">Quantidade de Estante (por corredor) * — mapa: 9 + 9</label>
+                      <input type="number" id="gerar-estantes" required min="1" max="99" value="18">
+                    </div>
+                    <div class="form-group">
+                      <label for="gerar-corredores">Quantidade de Corredor (na sala) *</label>
+                      <input type="number" id="gerar-corredores" required min="1" max="99" value="1">
+                    </div>
+                    <div class="form-group">
+                      <label for="gerar-prateleiras">Quantidade de Prateleira (por estante) *</label>
+                      <input type="number" id="gerar-prateleiras" required min="1" max="8" value="8">
+                    </div>
+                    <div class="form-group">
+                      <label for="gerar-caixas">Quantidade de caixa por prateleira * — 4 = 32 por estante</label>
+                      <input type="number" id="gerar-caixas" required min="1" max="4" value="4">
+                    </div>
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="btn-gerar-sala">Calcular</button>
+                    <p class="gerar-resumo" id="gerar-resumo"></p>
+                  </div>
+                </form>
+              </div>
+            </article>
           </div>
 
           <!-- Aba Pesquisa (navegador de salas + caixas cadastradas) -->
@@ -830,6 +889,25 @@
     </div>
   </div>
 
+  <!-- Mapa do arquivo em tela cheia -->
+  <div class="mapa-popup" id="mapa-popup" hidden role="dialog" aria-modal="true" aria-label="Mapa do arquivo">
+    <header class="mapa-popup-topo">
+      <span class="mapa-popup-nome" id="mapa-sala-nome"></span>
+      <div class="mapa-legenda">
+        <span class="legenda-item"><i class="mapa-quad vazio"></i>Vazia (0%)</span>
+        <span class="legenda-item"><i class="mapa-quad parcial"></i>Parcial</span>
+        <span class="legenda-item"><i class="mapa-quad cheia"></i>Cheia (100%)</span>
+      </div>
+      <button type="button" class="mapa-popup-fechar" id="mapa-popup-fechar">&times; Fechar</button>
+    </header>
+    <div class="mapa-popup-corpo">
+      <div class="mapa-frame">
+        <div class="mapa-estantes" id="mapa-estantes"></div>
+      </div>
+    </div>
+    <p class="mapa-resumo" id="mapa-resumo" hidden></p>
+  </div>
+
   <!-- Modal de detalhes -->
   <div class="modal-overlay" id="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -847,8 +925,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261001.4"></script>
-  <script src="assets/js/api.js?v=20261001.4"></script>
-  <script src="assets/js/app.js?v=20261001.4"></script>
+  <script src="assets/js/config.js?v=20261001.15"></script>
+  <script src="assets/js/api.js?v=20261001.15"></script>
+  <script src="assets/js/app.js?v=20261001.15"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261001.4';
+  const VERSAO_APP = '20261001.15';
 
   /* ============================================================
      UTILITÁRIOS
@@ -420,6 +420,9 @@
       document.getElementById('metric-atrasados').textContent = m.atrasados;
       document.getElementById('metric-descarte').textContent = m.paraDescarte;
 
+      // Mapa do arquivo (select de sala + grade de caixas)
+      initMapaArquivo().catch(err => console.warn('mapa do arquivo:', err.message));
+
       // Últimos documentos
       const recentes = [...m.documentos]
         .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
@@ -459,6 +462,373 @@
     } catch (err) {
       U.toast(`Erro ao carregar painel: ${err.message}`, 'error');
     }
+  }
+
+  /* ============================================================
+     MAPA DO ARQUIVO (painel): select de sala + grade de caixas
+     ============================================================ */
+  let mapaInit = false;
+  let mapaSeq = 0;
+
+  /** Preenche o select de salas; escolher uma abre o pop-up do mapa. */
+  async function initMapaArquivo() {
+    const sel = document.getElementById('mapa-sala');
+    if (!sel) return;
+    if (!mapaInit) {
+      mapaInit = true;
+      sel.addEventListener('change', () => {
+        atualizaBotaoMapa();
+        if (sel.value) abreMapa(); else fechaMapa();
+      });
+      window.addEventListener('resize', encaixaMapa);
+      document.getElementById('mapa-abrir')?.addEventListener('click', abreMapa);
+      document.getElementById('mapa-popup-fechar')?.addEventListener('click', fechaMapa);
+      const popup = document.getElementById('mapa-popup');
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && popup && !popup.hidden) fechaMapa();
+      });
+    }
+    const salas = await SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao')
+      .catch(() => []);
+    if (salas && salas.length) fillSelect('mapa-sala', salas, 'Selecione a sala…');
+    atualizaBotaoMapa();
+    if (sel.value) abreMapa();
+  }
+
+  /** Abre o pop-up em tela cheia e carrega o mapa da sala escolhida. */
+  function abreMapa() {
+    const sel = document.getElementById('mapa-sala');
+    const popup = document.getElementById('mapa-popup');
+    if (!sel || !popup || !sel.value) return;
+    popup.hidden = false;
+    document.body.style.overflow = 'hidden';  // remove a rolagem da página
+    renderMapaArquivo();
+  }
+
+  /** Fecha o pop-up e devolve a rolagem da página. */
+  function fechaMapa() {
+    const popup = document.getElementById('mapa-popup');
+    if (!popup || popup.hidden) return;
+    popup.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  /** Botão "Ver mapa" só faz sentido com uma sala escolhida. */
+  function atualizaBotaoMapa() {
+    const sel = document.getElementById('mapa-sala');
+    const btn = document.getElementById('mapa-abrir');
+    if (btn) btn.disabled = !sel || !sel.value;
+  }
+
+  /**
+   * Encaixa a planta na área branca do pop-up, sem barra de
+   * rolagem: mede o tamanho natural (corredores lado a lado,
+   * estantes na vertical) e reduz (scale) até os itens
+   * preencheremem a área. Textos avulsos (carregando/erro) ficam sem escala.
+   */
+  function encaixaMapa() {
+    const popup = document.getElementById('mapa-popup');
+    const frame = popup && popup.querySelector('.mapa-frame');
+    const grid = document.getElementById('mapa-estantes');
+    if (!popup || popup.hidden || !frame || !grid) return;
+    grid.style.transform = 'none';
+    grid.classList.toggle('planta', !!grid.querySelector('.mapa-corredor'));
+    if (!grid.classList.contains('planta')) return;
+    const folga = 20;  // respiro até a borda tracejada
+    const ex = (frame.clientWidth - folga) / Math.max(1, grid.offsetWidth);
+    const ey = (frame.clientHeight - folga) / Math.max(1, grid.offsetHeight);
+    grid.style.transform = `scale(${Math.min(1, ex, ey)})`;
+  }
+
+  /**
+   * Carrega corredores, estantes, prateleiras, caixas e a ocupação
+   * da sala escolhida e monta a PLANTA do arquivo no pop-up:
+   * faixas de corredor com as estantes dentro e, em cada estante,
+   * as prateleiras com as suas caixas. `mapaSeq` descarta a
+   * resposta de uma troca anterior.
+   */
+  async function renderMapaArquivo() {
+    const sel = document.getElementById('mapa-sala');
+    const grid = document.getElementById('mapa-estantes');
+    const nome = document.getElementById('mapa-sala-nome');
+    const resumo = document.getElementById('mapa-resumo');
+    if (!sel || !grid || !nome || !resumo) return;
+    const minhaVez = ++mapaSeq;
+    const salaId = sel.value;
+
+    if (!salaId) {
+      nome.hidden = true;
+      grid.innerHTML = '<p class="empty-state">Selecione uma sala de arquivo para ver o mapa das caixas…</p>';
+      resumo.hidden = true;
+      fechaMapa();
+      return;
+    }
+
+    nome.textContent = (sel.options[sel.selectedIndex] || {}).textContent || '';
+    nome.hidden = false;
+    grid.innerHTML = '<p class="empty-state">Carregando…</p>';
+    grid.style.transform = 'none';
+    grid.classList.remove('planta');
+    try {
+      const escopo = `&sala_id=eq.${encodeURIComponent(salaId)}`;
+      const [corredores, estantes, caixas, conta] = await Promise.all([
+        SGA_API.list('corredores', `${escopo}&order=codigo,id`, 'id,codigo,descricao')
+          .catch(() => []),
+        SGA_API.list('estantes', `${escopo}&order=codigo,id`,
+          'id,codigo,descricao,corredor_id,corredor:corredores(codigo)')
+          .catch(() => SGA_API.list('estantes', `${escopo}&order=codigo,id`,
+            'id,codigo,descricao,corredor_id').catch(() => [])),
+        SGA_API.list('caixas', `${escopo}&order=codigo,id`,
+          'id,codigo,capacidade,estante_id,prateleira_id,prateleira:prateleiras(codigo)'),
+        contarDocumentosPorCaixa(),
+      ]);
+      if (minhaVez !== mapaSeq) return; // outra seleção já assumiu
+      const prateleiras = await prateleirasDaSala(estantes || []);
+      if (minhaVez !== mapaSeq) return;
+      desenharMapa(corredores || [], estantes || [], prateleiras, caixas || [], conta || {});
+    } catch (err) {
+      if (minhaVez !== mapaSeq) return;
+      grid.innerHTML = `<p class="empty-state">Erro ao montar o mapa: ${U.esc(err.message)}</p>`;
+      resumo.hidden = true;
+      encaixaMapa();
+    }
+  }
+
+  /**
+   * Prateleiras das estantes da sala. A prateleira não tem
+   * sala_id: busca por estante_id=in.(...); se a URL estourar,
+   * traz tudo e o desenho filtra pelo que é da sala.
+   */
+  async function prateleirasDaSala(estantes) {
+    const ids = estantes.map(e => e.id)
+      .filter(v => v !== null && v !== undefined && v !== '')
+      .map(encodeURIComponent);
+    if (!ids.length) return [];
+    return SGA_API.list('prateleiras',
+        `&estante_id=in.(${ids.join(',')})&order=codigo,id`,
+        'id,codigo,descricao,estante_id')
+      .catch(() => SGA_API.list('prateleiras', '&order=codigo,id&limit=5000',
+        'id,codigo,descricao,estante_id').catch(() => []));
+  }
+
+  /**
+   * PLANTA DO ARQUIVO: faixas = CORREDORES; dentro de cada faixa,
+   * um bloco por ESTANTE; dentro da estante, uma linha por
+   * PRATELEIRA com as suas caixas (só a cor — verde 0%, âmbar
+   * parcial, cinza 100%; localização e ocupação no tooltip). O
+   * resultado é medido e reduzido (scale) por encaixaMapa() para
+   * caber no pop-up, sem barra de rolagem.
+   */
+  function desenharMapa(corredores, estantes, prateleiras, caixas, conta) {
+    const grid = document.getElementById('mapa-estantes');
+    const resumo = document.getElementById('mapa-resumo');
+    if (!grid || !resumo) return;
+
+    if (!corredores.length && !estantes.length && !caixas.length) {
+      grid.innerHTML = '<p class="empty-state">Nenhum corredor, estante ou caixa cadastrado nesta sala</p>';
+      resumo.hidden = true;
+      encaixaMapa();
+      return;
+    }
+
+    const cmp = (a, b, campo) =>
+      String(a[campo] || '').localeCompare(String(b[campo] || ''), 'pt', { numeric: true }) ||
+      String(a.id).localeCompare(String(b.id));
+    const vazio = v => v === null || v === undefined || v === '';
+
+    const estIds = new Set(estantes.map(e => String(e.id)));
+
+    // Prateleiras da sala (+ as que só aparecem nas caixas)
+    const pratPorId = new Map();
+    prateleiras.forEach(p => {
+      if (vazio(p.estante_id) || estIds.has(String(p.estante_id))) pratPorId.set(String(p.id), p);
+    });
+    caixas.forEach(c => {
+      if (!vazio(c.prateleira_id) && !pratPorId.has(String(c.prateleira_id))) {
+        pratPorId.set(String(c.prateleira_id), {
+          id: c.prateleira_id,
+          codigo: c.prateleira?.codigo || '',
+          estante_id: c.estante_id,
+        });
+      }
+    });
+
+    const pratsPorEst = new Map();   // estante_id -> prateleiras
+    pratPorId.forEach(p => {
+      const k = vazio(p.estante_id) ? '__sem_estante__' : String(p.estante_id);
+      if (!pratsPorEst.has(k)) pratsPorEst.set(k, []);
+      pratsPorEst.get(k).push(p);
+    });
+    pratsPorEst.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
+    let nPrateleiras = 0;
+    pratsPorEst.forEach((l, k) => {
+      if (k === '__sem_estante__' || estIds.has(k)) nPrateleiras += l.length;
+    });
+
+    const caixasPorPrat = new Map(); // prateleira_id -> caixas
+    caixas.forEach(c => {
+      if (vazio(c.prateleira_id)) return;
+      const k = String(c.prateleira_id);
+      if (!caixasPorPrat.has(k)) caixasPorPrat.set(k, []);
+      caixasPorPrat.get(k).push(c);
+    });
+    caixasPorPrat.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
+
+    const soltasPorEst = new Map();  // caixas sem prateleira, por estante
+    caixas.forEach(c => {
+      if (!vazio(c.prateleira_id)) return;
+      const k = vazio(c.estante_id) ? '__sem_estante__' : String(c.estante_id);
+      if (!soltasPorEst.has(k)) soltasPorEst.set(k, []);
+      soltasPorEst.get(k).push(c);
+    });
+    soltasPorEst.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
+
+    const corrPorId = new Map();     // corredores (mesmo os sem estante)
+    corredores.forEach(c => corrPorId.set(String(c.id), c));
+    estantes.forEach(e => {
+      if (vazio(e.corredor_id) || corrPorId.has(String(e.corredor_id))) return;
+      corrPorId.set(String(e.corredor_id),
+        { id: e.corredor_id, codigo: e.corredor?.codigo || '—', descricao: null });
+    });
+
+    const estPorCorr = new Map();    // corredor_id -> estantes
+    estantes.forEach(e => {
+      const k = vazio(e.corredor_id) ? '__sem_corredor__' : String(e.corredor_id);
+      if (!estPorCorr.has(k)) estPorCorr.set(k, []);
+      estPorCorr.get(k).push(e);
+    });
+    estPorCorr.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
+
+    let vazias = 0, parciais = 0, cheias = 0, somaPct = 0, comCap = 0;
+    const emitido = new Set();
+
+    const quadradinho = (c, local) => {
+      const docs = conta[c.id] || 0;
+      const cap = (c.capacidade === null || c.capacidade === '' || c.capacidade === undefined)
+        ? null : Number(c.capacidade);
+      let pct = null;
+      if (cap) {
+        pct = Math.min(100, Math.round((docs / cap) * 100));
+        somaPct += pct;
+        comCap++;
+      }
+      const classe = (pct === 0 || (pct === null && docs === 0)) ? 'vazio'
+        : (pct !== null && pct >= 100 ? 'cheia' : 'parcial');
+      if (classe === 'vazio') vazias++;
+      else if (classe === 'cheia') cheias++;
+      else parciais++;
+
+      const titulo = [local, c.prateleira?.codigo, c.codigo].filter(Boolean).join(' · ') +
+        (cap
+          ? ` — ${pct}% (${docs}/${cap} pastas)`
+          : ` — ${docs} documento(s), sem capacidade`);
+      emitido.add(String(c.id));
+      return `<div class="mapa-quad ${classe}" title="${U.esc(titulo)}"></div>`;
+    };
+
+    // Uma linha da estante: rótulo da prateleira + as suas caixas
+    const linhaPrateleira = (rotulo, lista, local) =>
+      `<div class="mapa-prateleira">` +
+      `<span class="mapa-prat-rotulo">${U.esc(rotulo)}</span>` +
+      (lista.length
+        ? `<div class="mapa-prat-caixas">${lista.map(x => quadradinho(x, local)).join('')}</div>`
+        : '<span class="mapa-prat-vazia">sem caixas</span>') +
+      '</div>';
+
+    const blocoEstante = (e, corrCod) => {
+      const k = String(e.id);
+      const local = corrCod
+        ? `Corredor ${corrCod} · Estante ${e.codigo || '—'}`
+        : `Sem corredor · Estante ${e.codigo || '—'}`;
+      const titulo = U.esc(e.codigo || '—') +
+        (e.descricao ? ` — ${U.esc(e.descricao)}` : '');
+      const linhas = [];
+      (pratsPorEst.get(k) || []).forEach(p => linhas.push(
+        linhaPrateleira(p.codigo || '—', caixasPorPrat.get(String(p.id)) || [], local)));
+      const soltas = soltasPorEst.get(k) || [];
+      if (soltas.length) linhas.push(linhaPrateleira('—', soltas, local));
+      if (!linhas.length) linhas.push('<p class="mapa-estante-vazio">Nenhuma prateleira cadastrada</p>');
+      return `<section class="mapa-estante"><header class="mapa-estante-titulo">${titulo}</header>` +
+        linhas.join('') + '</section>';
+    };
+
+    const blocoSemEstante = () => {
+      const k = '__sem_estante__';
+      const local = 'Sem corredor · Sem estante';
+      const linhas = [];
+      (pratsPorEst.get(k) || []).forEach(p => linhas.push(
+        linhaPrateleira(p.codigo || '—', caixasPorPrat.get(String(p.id)) || [], local)));
+      const soltas = soltasPorEst.get(k) || [];
+      if (soltas.length) linhas.push(linhaPrateleira('—', soltas, local));
+      if (!linhas.length) return '';
+      return `<section class="mapa-estante"><header class="mapa-estante-titulo">Sem estante</header>` +
+        linhas.join('') + '</section>';
+    };
+
+    /**
+     * Faixa do corredor: 9 estantes do lado esquerdo (posições
+     * 1-9) e as demais do lado direito (10-18 e além), com a rua
+     * no meio — apenas o que está cadastrado no banco, sem vagas
+     * simuladas. As estantes ficam na vertical (uma embaixo da
+     * outra).
+     */
+    const banda = (rotulo, ests, corrCod, extra, sempre18) => {
+      const lado = lista =>
+        `<div class="mapa-corredor-lado">` +
+        lista.map(e => blocoEstante(e, corrCod)).join('') +
+        '</div>';
+      let esq = [], dir = [];
+      if (sempre18) {
+        esq = ests.slice(0, 9);
+        dir = ests.slice(9);
+      } else if (ests.length) {
+        const corte = Math.ceil(ests.length / 2);
+        esq = ests.slice(0, corte);
+        dir = ests.slice(corte);
+      }
+      const conteudo = ests.length
+        ? lado(esq) +
+          '<div class="mapa-corredor-rua"></div>' +
+          lado(dir)
+        : (extra ? '' : '<p class="mapa-estante-vazio">Nenhuma estante neste corredor</p>');
+      return `<section class="mapa-corredor">` +
+        `<span class="mapa-corredor-rotulo">${rotulo}</span>` +
+        `<div class="mapa-corredor-lados">${conteudo}</div>` +
+        (extra || '') +
+        '</section>';
+    };
+
+    const bandas = [];
+    [...corrPorId.values()].sort((a, b) => cmp(a, b, 'codigo')).forEach(c => {
+      const ests = estPorCorr.get(String(c.id)) || [];
+      const rotulo = U.esc(`Corredor ${c.codigo || '—'}` + (c.descricao ? ` — ${c.descricao}` : ''));
+      bandas.push(banda(rotulo, ests, c.codigo || '—', '', true));
+    });
+    const semCorr = estPorCorr.get('__sem_corredor__') || [];
+    const pseudo = blocoSemEstante();
+    if (semCorr.length || pseudo) {
+      bandas.push(banda('Sem corredor', semCorr, null, pseudo));
+    }
+
+    grid.innerHTML = bandas.join('');
+
+    // Caixas que não couberam em nenhuma prateleira da sala: à parte
+    const sobras = caixas.filter(c => !emitido.has(String(c.id)));
+    if (sobras.length) {
+      grid.insertAdjacentHTML('beforeend',
+        banda('Fora do mapa', [], null,
+          `<section class="mapa-estante"><header class="mapa-estante-titulo">Caixas sem local</header>` +
+          linhaPrateleira('—', sobras, 'Sem local') + '</section>'));
+    }
+
+    const media = comCap ? Math.round(somaPct / comCap) : null;
+    resumo.textContent =
+      `${corrPorId.size} corredor(es) · ${estantes.length} estante(s) · ` +
+      `${nPrateleiras} prateleira(s) · ${caixas.length} caixa(s) · ${vazias} vazia(s) · ` +
+      `${parciais} parcial(is) · ${cheias} cheia(s)` +
+      (media !== null ? ` · ocupação média ${media}%` : '');
+    resumo.hidden = false;
+    encaixaMapa();
   }
 
   /* ============================================================
@@ -879,6 +1249,87 @@
     // selecionado (ver refreshCodigos)
     refreshCodigos();
 
+    // ---------- Gerar Sala de Arquivo ----------
+    // Mesmo conceito do cadastro manual: os códigos vêm todos da
+    // sequência do banco (gerar_codigo com escopo por nível), só
+    // que de uma vez só — a RPC cria a sala e a estrutura inteira
+    // em uma transação (sql/15_gerar_sala_arquivo.sql).
+    const formGerar = document.getElementById('form-gerar-sala');
+    const resumoGerar = document.getElementById('gerar-resumo');
+
+    const quantidadesGerar = () => {
+      const n = id => parseInt(document.getElementById(id).value, 10) || 0;
+      const corr = n('gerar-corredores');
+      const est = n('gerar-estantes');
+      const prat = n('gerar-prateleiras');
+      const cx = n('gerar-caixas');
+      const estantes = corr * est;
+      return {
+        corr, est, prat, cx,
+        estantes,
+        prateleiras: estantes * prat,
+        caixas: estantes * prat * cx,
+      };
+    };
+
+    const mostraResumoGerar = prefixo => {
+      const t = quantidadesGerar();
+      resumoGerar.textContent =
+        `${prefixo}${t.corr} corredor(es) · ${t.estantes} estante(s) · ` +
+        `${t.prateleiras} prateleira(s) · ${t.caixas} caixa(s)`;
+    };
+
+    formGerar.addEventListener('input', () => mostraResumoGerar('Vai gerar: '));
+    mostraResumoGerar('Vai gerar: ');
+
+    formGerar.addEventListener('submit', async e => {
+      e.preventDefault();
+      const nome = document.getElementById('gerar-nome').value.trim();
+      const t = quantidadesGerar();
+      if (!nome) { U.toast('Informe o nome da sala.', 'warning'); return; }
+      if (t.corr < 1 || t.est < 1 || t.prat < 1 || t.cx < 1) {
+        U.toast('Informe as quantidades (mínimo 1 em cada campo).', 'warning'); return;
+      }
+      if (t.corr > 99 || t.est > 99) {
+        U.toast('Quantidade máxima: 99 corredores e 99 estantes por corredor.', 'warning'); return;
+      }
+      if (t.prat > 8) { U.toast('Máximo de 8 prateleiras por estante.', 'warning'); return; }
+      if (t.cx > 4) { U.toast('Máximo de 4 caixas por prateleira (32 por estante).', 'warning'); return; }
+      if (t.estantes > 999) {
+        U.toast('Total de estantes acima de 999 (capacidade máxima da sala).', 'warning'); return;
+      }
+      if (t.caixas > 10000) {
+        U.toast('Total de caixas acima de 10000. Reduza as quantidades.', 'warning'); return;
+      }
+
+      const btn = document.getElementById('btn-gerar-sala');
+      U.loading(btn, true);
+      try {
+        const r = await SGA_API.gerarSalaArquivo({
+          nome,
+          corredores: t.corr,
+          estantes: t.est,
+          prateleiras: t.prat,
+          caixas: t.cx,
+        });
+        U.toast(`Sala ${r.sala_codigo} gerada com sucesso!`, 'success');
+        formGerar.reset();
+        resumoGerar.textContent =
+          `Sala ${r.sala_codigo} gerada: ${r.corredores} corredor(es) · ` +
+          `${r.estantes} estante(s) · ${r.prateleiras} prateleira(s) · ` +
+          `${r.caixas} caixa(s).`;
+        // Mesmas atualizações do cadastro manual: próximo código
+        // da sala, selects de localização e mapa do Painel.
+        refreshCodigos();
+        loadLocalSelects();
+        loadCaixasTable();
+      } catch (err) {
+        U.toast(err.message, 'error');
+      } finally {
+        U.loading(btn, false);
+      }
+    });
+
     // ---------- Documento ----------
     const formDoc = document.getElementById('form-documento');
     formDoc.addEventListener('submit', async e => {
@@ -1019,7 +1470,7 @@
         U.toast('Preencha sala, corredor, estante e capacidade.', 'warning');
         return;
       }
-      if (capacidade > 6) { U.toast('Capacidade máxima: 6 caixas por prateleira.', 'warning'); return; }
+      if (capacidade > 4) { U.toast('Capacidade máxima: 4 caixas por prateleira (32 por estante).', 'warning'); return; }
       try {
         // Teto da estante: no máximo 8 prateleiras cadastradas
         const prateleirasDaEstante = await SGA_API.list(
@@ -1068,11 +1519,11 @@
       }
       if (capacidade > 5) { U.toast('Capacidade máxima: 5 pastas por caixa.', 'warning'); return; }
       try {
-        // Teto da prateleira: no máximo 6 caixas cadastradas
+        // Teto da prateleira: no máximo 4 caixas cadastradas (32 por estante)
         const caixasDaPrateleira = await SGA_API.list(
           'caixas', `&prateleira_id=eq.${encodeURIComponent(prateleiraId)}`, 'id');
-        if ((caixasDaPrateleira || []).length >= 6) {
-          U.toast('Prateleira já possui o máximo de 6 caixas.', 'warning');
+        if ((caixasDaPrateleira || []).length >= 4) {
+          U.toast('Prateleira já possui o máximo de 4 caixas.', 'warning');
           return;
         }
         const codigo = await SGA_API.gerarCodigo('caixas', prateleiraId);
@@ -1181,6 +1632,7 @@
   async function refreshCodigos() {
     const mapa = [
       ['sala-codigo', 'salas'],
+      ['gerar-codigo', 'salas'],
     ];
     await Promise.all(mapa.map(async ([id, chave]) => {
       const el = document.getElementById(id);
