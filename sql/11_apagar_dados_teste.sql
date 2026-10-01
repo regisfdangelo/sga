@@ -3,14 +3,25 @@
 -- APAGA OS DADOS DE TESTE (irreversivel!).
 --
 -- O que apaga:
---   arquivos_digitais, emprestimos, documentos, caixas,
---   prateleiras, estantes, corredores, salas, auditoria
---   e a sequencia de protocolo (volta a AAAA-000001).
+--   TODAS as tabelas do schema public - documentos, emprestimos,
+--   caixas, prateleiras, estantes, corredores, salas,
+--   arquivos_digitais, auditoria, protocolo_sequencia e
+--   codigo_sequencia. A lista e montada DINAMICAMENTE na hora
+--   de rodar: tabelas novas entram sozinhas, sem editar o script.
 --
 -- O que mantem:
---   usuarios (login e perfis), auth.users e a estrutura
---   das tabelas (nenhuma DROP TABLE / ALTER; colunas como
---   capacidade e corredor_id permanecem).
+--   usuarios (cadastro, login e perfis), auth.users (senhas) e a
+--   estrutura das tabelas (nenhuma DROP TABLE / ALTER; colunas
+--   como capacidade e corredor_id permanecem).
+--
+-- Ordem das exclusoes:
+--   filhos antes dos pais, resolvida pelas proprias FKs em
+--   rodadas (DELETE nao precisa de ordem perfeita, so de repetir
+--   ate' nenhuma tabela mais avancar). A AUDITORIA vai por
+--   ULTIMO: cada DELETE nas tabelas de negocio dispara o
+--   trg_auditoria e cria registros novos.
+--   Tabelas de extensao (ex.: spatial_ref_sys do PostGIS) sao
+--   ignoradas.
 --
 -- Onde executar: Supabase Dashboard > SQL Editor > New query > Run.
 -- Reexecutavel: rodar de novo nao apaga nada (ja estara vazio).
@@ -22,54 +33,83 @@
 BEGIN;
 
 -- ------------------------------------------------------------
--- 1) Conferencia do que existe HOJE
+-- 1) Conferencia do que existe HOJE (menos usuarios)
 -- ------------------------------------------------------------
-SELECT 'arquivos_digitais' AS tabela, count(*) FROM public.arquivos_digitais
-UNION ALL SELECT 'emprestimos',      count(*) FROM public.emprestimos
-UNION ALL SELECT 'documentos',       count(*) FROM public.documentos
-UNION ALL SELECT 'caixas',           count(*) FROM public.caixas
-UNION ALL SELECT 'prateleiras',      count(*) FROM public.prateleiras
-UNION ALL SELECT 'estantes',         count(*) FROM public.estantes
-UNION ALL SELECT 'corredores',       count(*) FROM public.corredores
-UNION ALL SELECT 'salas',            count(*) FROM public.salas
-UNION ALL SELECT 'auditoria',        count(*) FROM public.auditoria
-UNION ALL SELECT 'usuarios',         count(*) FROM public.usuarios
-ORDER BY tabela;
+SELECT 'public.' || c.relname AS tabela,
+       (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', c.relname), false, true, '')))[1]::text::bigint AS linhas
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public'
+   AND c.relkind IN ('r', 'p')
+   AND c.relname <> 'usuarios'
+   AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                    WHERE d.classid = 'pg_class'::regclass
+                      AND d.objid = c.oid
+                      AND d.deptype = 'e')
+ ORDER BY 1;
 
 -- ------------------------------------------------------------
--- 2) Exclusao na ordem das dependencias (filhos antes dos pais)
---    A auditoria vai por ULTIMO: cada DELETE acima dispara o
---    trigger trg_auditoria e criaria registros novos.
---    usuarios NAO entra na lista (mantidos).
+-- 2) Esvazia todas as tabelas (menos usuarios e auditoria),
+--    em rodadas: a cada passo tenta todas as que ainda falharam
+--    (FK de filho -> pai), ate' nenhuma avancar.
 -- ------------------------------------------------------------
 DO $$
-DECLARE t TEXT;
+DECLARE
+  t       text;
+  pend    text[];
+  prox    text[];
+  n_antes int;
+  rodada  int := 0;
 BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'arquivos_digitais', 'emprestimos', 'documentos', 'caixas',
-    'prateleiras', 'estantes', 'corredores', 'salas',
-    'auditoria'
-  ] LOOP
-    IF to_regclass('public.' || t) IS NULL THEN
-      RAISE NOTICE 'Tabela inexistente, ignorada: public.%', t;
-      CONTINUE;
-    END IF;
-    EXECUTE format('DELETE FROM public.%I', t);
+  SELECT COALESCE(array_agg(c.relname ORDER BY c.relname), '{}')
+    INTO pend
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public'
+     AND c.relkind IN ('r', 'p')
+     AND c.relname NOT IN ('usuarios', 'auditoria')
+     AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                      WHERE d.classid = 'pg_class'::regclass
+                        AND d.objid = c.oid
+                        AND d.deptype = 'e');
+
+  WHILE COALESCE(array_length(pend, 1), 0) > 0 LOOP
+    rodada  := rodada + 1;
+    n_antes := array_length(pend, 1);
+    prox    := '{}';
+
+    FOREACH t IN ARRAY pend LOOP
+      BEGIN
+        EXECUTE format('DELETE FROM public.%I', t);
+      EXCEPTION WHEN others THEN
+        prox := prox || t;   -- ainda bloqueada: tenta de novo na proxima rodada
+      END;
+    END LOOP;
+
+    pend := prox;
+    EXIT WHEN rodada > 20
+           OR COALESCE(array_length(pend, 1), 0) >= n_antes;  -- sem progresso
+  END LOOP;
+
+  -- Motivo de cada tabela que sobrou (FK apontando para fora do public?)
+  FOREACH t IN ARRAY COALESCE(pend, '{}') LOOP
+    BEGIN
+      EXECUTE format('DELETE FROM public.%I', t);
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'AVISO: public.% nao foi esvaziada (%)', t, SQLERRM;
+    END;
   END LOOP;
 END $$;
 
 -- ------------------------------------------------------------
--- 3) Zera as sequencias (protocolo volta a AAAA-000001 e os
---    codigos das localizacoes voltam ao inicio: SL-001, C-001,
---    E-001, P-0001, CX-000001)
+-- 3) Auditoria POR ULTIMO: apaga tambem os registros gerados
+--    pelos DELETEs acima (o proprio DELETE na auditoria nao tem
+--    trigger, entao nao se recria).
 -- ------------------------------------------------------------
 DO $$
 BEGIN
-  IF to_regclass('public.protocolo_sequencia') IS NOT NULL THEN
-    DELETE FROM public.protocolo_sequencia;
-  END IF;
-  IF to_regclass('public.codigo_sequencia') IS NOT NULL THEN
-    DELETE FROM public.codigo_sequencia;
+  IF to_regclass('public.auditoria') IS NOT NULL THEN
+    DELETE FROM public.auditoria;
   END IF;
 END $$;
 
@@ -77,19 +117,27 @@ COMMIT;
 
 -- ------------------------------------------------------------
 -- VERIFICACAO FINAL
---    Esperado: 0 em todas, EXCETO usuarios (mantidos).
+--    Esperado: 0 linhas em TODAS as tabelas (menos usuarios).
 -- ------------------------------------------------------------
-SELECT 'arquivos_digitais' AS tabela, count(*) FROM public.arquivos_digitais
-UNION ALL SELECT 'emprestimos',      count(*) FROM public.emprestimos
-UNION ALL SELECT 'documentos',       count(*) FROM public.documentos
-UNION ALL SELECT 'caixas',           count(*) FROM public.caixas
-UNION ALL SELECT 'prateleiras',      count(*) FROM public.prateleiras
-UNION ALL SELECT 'estantes',         count(*) FROM public.estantes
-UNION ALL SELECT 'corredores',       count(*) FROM public.corredores
-UNION ALL SELECT 'salas',            count(*) FROM public.salas
-UNION ALL SELECT 'auditoria',        count(*) FROM public.auditoria
-UNION ALL SELECT 'usuarios',         count(*) FROM public.usuarios
-ORDER BY tabela;
+SELECT 'public.' || c.relname AS tabela,
+       (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', c.relname), false, true, '')))[1]::text::bigint AS linhas
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public'
+   AND c.relkind IN ('r', 'p')
+   AND c.relname <> 'usuarios'
+   AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                    WHERE d.classid = 'pg_class'::regclass
+                      AND d.objid = c.oid
+                      AND d.deptype = 'e')
+ ORDER BY 1;
 
--- Protocolo esperado apos o reset:
--- SELECT public.proximo_protocolo();
+-- Usuarios mantidos (esperado: as mesmas linhas de antes)
+SELECT id, email, nome, perfil
+  FROM public.usuarios
+ ORDER BY email;
+
+-- As sequencias (public.protocolo_sequencia e public.codigo_sequencia)
+-- aparecem no listado acima com 0 linhas: o protocolo volta a
+-- AAAA-000001 e os codigos das localizacoes voltam ao inicio
+-- (SL-001, C-001, E-001, P-0001, CX-000001).
