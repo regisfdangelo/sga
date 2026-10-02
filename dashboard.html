@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261001.15">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261001.20">
 </head>
 <body class="app-page">
 
@@ -451,12 +451,12 @@
                       <select id="estante-sala" required><option value="">Selecione…</option></select>
                     </div>
                     <div class="form-group">
-                      <label for="estante-corredor">Corredor *</label>
-                      <select id="estante-corredor" required><option value="">Selecione o corredor…</option></select>
+                      <label for="estante-corredor">Corredor</label>
+                      <select id="estante-corredor"><option value="">Selecione o corredor…</option></select>
                     </div>
                     <div class="form-group">
                       <label for="estante-codigo">Código *</label>
-                      <input type="text" id="estante-codigo" readonly maxlength="30" placeholder="Selecione sala e corredor">
+                      <input type="text" id="estante-codigo" readonly maxlength="30" placeholder="Selecione a sala">
                     </div>
                     <div class="form-group">
                       <label for="estante-descricao">Descrição</label>
@@ -480,8 +480,8 @@
                       <select id="prat-sala" required><option value="">Selecione a sala…</option></select>
                     </div>
                     <div class="form-group">
-                      <label for="prat-corredor">Corredor *</label>
-                      <select id="prat-corredor" required><option value="">Selecione o corredor…</option></select>
+                      <label for="prat-corredor">Corredor</label>
+                      <select id="prat-corredor"><option value="">Selecione o corredor…</option></select>
                     </div>
                     <div class="form-group">
                       <label for="prat-estante">Estante *</label>
@@ -489,7 +489,7 @@
                     </div>
                     <div class="form-group">
                       <label for="prat-codigo">Código *</label>
-                      <input type="text" id="prat-codigo" readonly maxlength="30" placeholder="Selecione sala, corredor e estante">
+                      <input type="text" id="prat-codigo" readonly maxlength="30" placeholder="Selecione sala e estante">
                     </div>
                     <div class="form-group">
                       <label for="prat-descricao">Descrição</label>
@@ -513,8 +513,8 @@
                       <select id="caixa-sala" required><option value="">Selecione…</option></select>
                     </div>
                     <div class="form-group">
-                      <label for="caixa-corredor">Corredor *</label>
-                      <select id="caixa-corredor" required><option value="">Selecione o corredor…</option></select>
+                      <label for="caixa-corredor">Corredor</label>
+                      <select id="caixa-corredor"><option value="">Selecione o corredor…</option></select>
                     </div>
                     <div class="form-group">
                       <label for="caixa-estante">Estante *</label>
@@ -526,7 +526,7 @@
                     </div>
                     <div class="form-group">
                       <label for="caixa-codigo">Código *</label>
-                      <input type="text" id="caixa-codigo" readonly maxlength="30" placeholder="Selecione sala, corredor, estante e prateleira">
+                      <input type="text" id="caixa-codigo" readonly maxlength="30" placeholder="Selecione a sala">
                     </div>
                     <div class="form-group">
                       <label for="caixa-capacidade">Capacidade (pastas) *</label>
@@ -555,19 +555,15 @@
                       <input type="text" id="gerar-nome" required maxlength="120" placeholder="Ex.: Arquivo Central">
                     </div>
                     <div class="form-group">
-                      <label for="gerar-estantes">Quantidade de Estante (por corredor) * — mapa: 9 + 9</label>
-                      <input type="number" id="gerar-estantes" required min="1" max="99" value="18">
-                    </div>
-                    <div class="form-group">
-                      <label for="gerar-corredores">Quantidade de Corredor (na sala) *</label>
-                      <input type="number" id="gerar-corredores" required min="1" max="99" value="1">
+                      <label for="gerar-estantes">Quantidade de Estante</label>
+                      <input type="number" id="gerar-estantes" required min="1" value="18">
                     </div>
                     <div class="form-group">
                       <label for="gerar-prateleiras">Quantidade de Prateleira (por estante) *</label>
                       <input type="number" id="gerar-prateleiras" required min="1" max="8" value="8">
                     </div>
                     <div class="form-group">
-                      <label for="gerar-caixas">Quantidade de caixa por prateleira * — 4 = 32 por estante</label>
+                      <label for="gerar-caixas">Quantidade de caixa por prateleira</label>
                       <input type="number" id="gerar-caixas" required min="1" max="4" value="4">
                     </div>
                   </div>
@@ -925,8 +921,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261001.15"></script>
-  <script src="assets/js/api.js?v=20261001.15"></script>
-  <script src="assets/js/app.js?v=20261001.15"></script>
+  <script src="assets/js/config.js?v=20261001.20"></script>
+  <script src="assets/js/api.js?v=20261001.20"></script>
+  <script src="assets/js/app.js?v=20261001.20"></script>
 </body>
 </html>

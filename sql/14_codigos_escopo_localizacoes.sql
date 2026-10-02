@@ -7,19 +7,21 @@
 --   Estante:  sequencia POR SALA + CORREDOR
 --     Sala A / Corredor 1: E-001, E-002 ...
 --     Sala A / Corredor 2: E-001, E-002 ...
+--     (salas geradas SEM corredor usam escopo so-da-sala:
+--      Sala A sem corredor: E-001, E-002 ... em toda a sala)
 --   Prateleira: sequencia POR SALA + CORREDOR + ESTANTE
 --     (a prateleira guarda so o estante, e o estante ja pertence
 --      a UMA sala e UM corredor; logo o escopo "sala + corredor +
 --      estante" do formulario = o estante escolhido)
 --     Sala A / Corr 1 / Estante 1: P-0001, P-0002 ...
 --     Sala A / Corr 1 / Estante 2: P-0001, P-0002 ...
---   Caixa: sequencia POR SALA + CORREDOR + ESTANTE + PRATELEIRA
---     (a caixa guarda a prateleira, e a prateleira ja pertence a
---      uma estante, um corredor e uma sala; logo o escopo
---      "sala + corredor + estante + prateleira" do formulario =
---      a prateleira escolhida)
---     Sala A / Corr 1 / Est 1 / Prat 1: CX-000001, CX-000002 ...
---     Sala A / Corr 1 / Est 1 / Prat 2: CX-000001, CX-000002 ...
+--   Caixa: sequencia POR SALA (codigo UNICO em toda a sala)
+--     (o mapa da sala junta todas as caixas num quadrado so:
+--      se o codigo reiniciasse a cada prateleira, CX-000001
+--      aparecia repetido - por isso a sequencia e da sala
+--      inteira e o formulario manda o id da sala)
+--     Sala A: CX-000001, CX-000002 ... CX-000032
+--     Sala B: CX-000001, CX-000002 ... (outra sala, mesmo codigo)
 --   Sala continua com sequencia unica/global (SL-001).
 --
 -- O que muda:
@@ -27,18 +29,22 @@
 --      p_escopo (opcional), com os valores NA ORDEM das colunas
 --      do escopo, separados por "|":
 --        corredores  -> "<sala_id>"
---        estantes    -> "<sala_id>|<corredor_id>"
+--        estantes    -> "<sala_id>|<corredor_id>"  ou  "<sala_id>"
+--                       (so a sala, para estantes de salas
+--                        geradas SEM corredor - sql/16)
 --        prateleiras -> "<estante_id>"
---        caixas      -> "<prateleira_id>"
+--        caixas      -> "<sala_id>"
 --      Para corredores, estantes, prateleiras e caixas o escopo
---      e OBRIGATORIO.
+--      e OBRIGATORIO. Pode ter MENOS valores que colunas (usa as
+--      primeiras colunas, na ordem), nunca MAIS.
 --   2) A unicidade deixa de ser global:
 --        corredores  -> (sala_id, codigo)
 --        estantes    -> (sala_id, corredor_id, codigo)
 --        prateleiras -> (estante_id, codigo)
---        caixas      -> (prateleira_id, codigo)
---      Assim o mesmo C-001 / E-001 / P-0001 / CX-000001 pode
---      existir em outra sala, corredor, estante ou prateleira.
+--        caixas      -> (sala_id, codigo)
+--      Assim o mesmo C-001 / E-001 / P-0001 pode existir em
+--      outra sala, corredor ou estante, e o mesmo CX-000001
+--      em OUTRA sala (dentro da sala ele e unico).
 --      Estantes antigas sem corredor_id nao conflitam (NULL nao
 --      choca no indice unico).
 --      Para isso sao removidos os travamentos globais de
@@ -54,11 +60,25 @@
 -- rodar este arquivo de novo substitui as funcoes - nao tem
 -- problema, o formato da chave (chave:escopo) nao muda.
 --
--- Revisao: escopo da PRATELEIRA (por sala + corredor + estante)
--- e da CAIXA (por sala + corredor + estante + prateleira).
--- Rode este arquivo de novo para as funcoes, os indices unicos
--- (estante_id, codigo) e (prateleira_id, codigo) e a limpeza dos
--- contadores orfaos.
+-- Revisao: escopo da PRATELEIRA (por sala + corredor + estante).
+-- Rode este arquivo de novo para as funcoes, o indice unico
+-- (estante_id, codigo) e a limpeza dos contadores orfaos.
+--
+-- Revisao (estante sem corredor): gerar_codigo / proximo_codigo
+-- agora aceitam escopo PARCIAL - "estantes" com apenas
+-- "<sala_id>" (salas geradas SEM corredor, sql/16). Se aparecer
+-- o erro "Escopo invalido para esta chave." ao gerar uma sala,
+-- rode este arquivo de novo (idempotente).
+--
+-- Revisao (caixa por sala): a CAIXA deixou de ser POR PRATELEIRA
+-- e passou a ser POR SALA - "caixas" usa "<sala_id>", o indice
+-- unico e (sala_id, codigo) e as caixas ja cadastradas sao
+-- RENUMERADAS por sala (CX-000001, CX-000002 ... na ordem de
+-- criacao, sem repeticao dentro da sala). Os contadores antigos
+-- "caixas:<prateleira>" nao servem mais e sao apagados aqui
+-- (reconstruidos por sala no proximo uso). Se o mapa mostrava
+-- CX-000001 repetido em todas as caixas, rode este arquivo de
+-- novo (idempotente).
 --
 -- Atencao: se voltar a rodar o 13_codigos_automaticos.sql, rode
 --          este 14 em seguida (o 13 recria as funcoes antigas,
@@ -94,7 +114,7 @@ BEGIN
     WHEN 'prateleiras' THEN v_prefixo := 'P';  v_digitos := 4; v_tabela := 'prateleiras';
                            v_colunas := ARRAY['estante_id'];
     WHEN 'caixas'      THEN v_prefixo := 'CX'; v_digitos := 6; v_tabela := 'caixas';
-                           v_colunas := ARRAY['prateleira_id'];
+                           v_colunas := ARRAY['sala_id'];
     ELSE RAISE EXCEPTION 'Chave de codigo desconhecida: %', p_chave;
   END CASE;
 
@@ -105,9 +125,12 @@ BEGIN
     END IF;
 
     v_vals := string_to_array(p_escopo, '|');
-    IF cardinality(v_vals) <> cardinality(v_colunas) THEN
+    -- Pode ter MENOS valores que colunas (ex.: estante sem
+    -- corredor -> so "<sala_id>"; usa as primeiras colunas, na
+    -- ordem). Nunca MAIS que colunas.
+    IF cardinality(v_vals) < 1 OR cardinality(v_vals) > cardinality(v_colunas) THEN
       RAISE EXCEPTION 'Escopo invalido para esta chave.'
-        USING DETAIL = format('esperado %s valor(es): %s | informado: %s',
+        USING DETAIL = format('ate %s valor(es), na ordem: %s | informado: %s',
                               cardinality(v_colunas),
                               array_to_string(v_colunas, ' | '), p_escopo);
     END IF;
@@ -123,7 +146,7 @@ BEGIN
 
     -- id de sala pode ser uuid ou bigint: a comparacao via ::text
     -- funciona nos dois tipos (mesmo formato que o front envia)
-    FOR i IN 1 .. cardinality(v_colunas) LOOP
+    FOR i IN 1 .. cardinality(v_vals) LOOP
       v_filtro := v_filtro || format(' %s %I::text = %L',
                    CASE WHEN i = 1 THEN 'WHERE' ELSE 'AND' END,
                    v_colunas[i], v_vals[i]);
@@ -189,7 +212,7 @@ BEGIN
     WHEN 'prateleiras' THEN v_prefixo := 'P';  v_digitos := 4; v_tabela := 'prateleiras';
                            v_colunas := ARRAY['estante_id'];
     WHEN 'caixas'      THEN v_prefixo := 'CX'; v_digitos := 6; v_tabela := 'caixas';
-                           v_colunas := ARRAY['prateleira_id'];
+                           v_colunas := ARRAY['sala_id'];
     ELSE RAISE EXCEPTION 'Chave de codigo desconhecida: %', p_chave;
   END CASE;
 
@@ -200,9 +223,11 @@ BEGIN
     END IF;
 
     v_vals := string_to_array(p_escopo, '|');
-    IF cardinality(v_vals) <> cardinality(v_colunas) THEN
+    -- Mesma regra do gerar_codigo: pode ter MENOS valores que
+    -- colunas (estante so-da-sala), nunca MAIS.
+    IF cardinality(v_vals) < 1 OR cardinality(v_vals) > cardinality(v_colunas) THEN
       RAISE EXCEPTION 'Escopo invalido para esta chave.'
-        USING DETAIL = format('esperado %s valor(es): %s | informado: %s',
+        USING DETAIL = format('ate %s valor(es), na ordem: %s | informado: %s',
                               cardinality(v_colunas),
                               array_to_string(v_colunas, ' | '), p_escopo);
     END IF;
@@ -213,7 +238,7 @@ BEGIN
 
     v_chave_seq := p_chave || ':' || p_escopo;
 
-    FOR i IN 1 .. cardinality(v_colunas) LOOP
+    FOR i IN 1 .. cardinality(v_vals) LOOP
       v_filtro := v_filtro || format(' %s %I::text = %L',
                    CASE WHEN i = 1 THEN 'WHERE' ELSE 'AND' END,
                    v_colunas[i], v_vals[i]);
@@ -289,6 +314,62 @@ BEGIN
   END LOOP;
 END $$;
 
+-- ------------------------------------------------------------
+-- 3b) Revisao "caixa por sala": as caixas antigas vinham da
+--     sequencia POR PRATELEIRA (CX-000001 repetido em cada
+--     prateleira) e o indice era (prateleira_id, codigo).
+--     Aqui:
+--       a) sai o indice antigo e o novo (se ja existir): a
+--          renumeracao troca valores no meio da instrucao e
+--          pode chocar com o proprio indice;
+--       b) cada sala e renumerada CX-000001, CX-000002 ... na
+--          ordem de criacao (id) - sem repeticao dentro da
+--          sala;
+--       c) os contadores "caixas:<prateleira>" nao servem mais
+--          (o escopo agora e a sala) e sao apagados - no
+--          proximo uso gerar_codigo reconstrói pelo maximo da
+--          propria sala.
+--     Idempotente: codigo ja sequencial nao muda (0 linhas).
+--     O indice novo (sala_id, codigo) entra no passo seguinte.
+-- ------------------------------------------------------------
+DO $$
+DECLARE
+  v_renum int := 0;
+BEGIN
+  IF to_regclass('public.caixas') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'caixas'
+          AND column_name = 'sala_id') THEN
+    RAISE NOTICE 'public.caixas sem coluna sala_id, renumeracao ignorada.';
+    RETURN;
+  END IF;
+
+  EXECUTE 'DROP INDEX IF EXISTS public.caixas_prateleira_codigo_unico';
+  EXECUTE 'DROP INDEX IF EXISTS public.caixas_sala_codigo_unico';
+
+  WITH alvo AS (
+    SELECT id,
+           'CX-' || lpad((row_number() OVER
+                          (PARTITION BY sala_id ORDER BY id))::text, 6, '0') AS novo
+      FROM public.caixas
+  )
+  UPDATE public.caixas c
+     SET codigo = a.novo
+    FROM alvo a
+   WHERE c.id = a.id
+     AND c.codigo IS DISTINCT FROM a.novo;
+  GET DIAGNOSTICS v_renum = ROW_COUNT;
+  IF v_renum > 0 THEN
+    RAISE NOTICE 'Caixas renumeradas por sala: %', v_renum;
+  END IF;
+
+  IF to_regclass('public.codigo_sequencia') IS NOT NULL THEN
+    DELETE FROM public.codigo_sequencia
+     WHERE chave LIKE 'caixas:%' OR chave = 'caixas';
+  END IF;
+END $$;
+
 DO $$
 BEGIN
   IF to_regclass('public.corredores') IS NOT NULL THEN
@@ -320,10 +401,10 @@ BEGIN
 
   IF to_regclass('public.caixas') IS NOT NULL THEN
     BEGIN
-      EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS caixas_prateleira_codigo_unico'
-           || ' ON public.caixas (prateleira_id, codigo)';
+      EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS caixas_sala_codigo_unico'
+           || ' ON public.caixas (sala_id, codigo)';
     EXCEPTION WHEN others THEN
-      RAISE NOTICE 'Indice caixas (prateleira_id, codigo) nao criado (falta a coluna prateleira_id ou ha codigos repetidos?): %', SQLERRM;
+      RAISE NOTICE 'Indice caixas (sala_id, codigo) nao criado (falta a coluna sala_id ou ha codigos repetidos?): %', SQLERRM;
     END;
   END IF;
 END $$;
@@ -346,6 +427,8 @@ GRANT EXECUTE ON FUNCTION public.proximo_codigo(text, text) TO authenticated;
 --    Contador orfao -> apagado; na proxima chamada a sequencia
 --    volta a partir do maior codigo que existe na propria tabela.
 --    Idempotente: contador com dados nunca e tocado.
+--    (Contadores de CAIXAS ficam de fora de proposito: o bloco
+--     3b apaga todos - o escopo antigo era por prateleira.)
 -- ------------------------------------------------------------
 DO $$
 DECLARE
@@ -354,8 +437,7 @@ BEGIN
   IF to_regclass('public.codigo_sequencia') IS NULL
      OR to_regclass('public.estantes') IS NULL
      OR to_regclass('public.corredores') IS NULL
-     OR to_regclass('public.prateleiras') IS NULL
-     OR to_regclass('public.caixas') IS NULL THEN
+     OR to_regclass('public.prateleiras') IS NULL THEN
     RETURN;
   END IF;
 
@@ -363,8 +445,7 @@ BEGIN
    WHERE (cs.chave LIKE 'corredores:%'
        OR cs.chave LIKE 'estantes:%'
        OR cs.chave LIKE 'prateleiras:%'
-       OR cs.chave LIKE 'caixas:%'
-       OR cs.chave IN ('corredores', 'estantes', 'prateleiras', 'caixas'))  -- sequencia global antiga
+       OR cs.chave IN ('corredores', 'estantes', 'prateleiras'))  -- sequencia global antiga
      AND NOT EXISTS (
        SELECT 1 FROM public.corredores c
         WHERE cs.chave = 'corredores:' || c.sala_id::text)
@@ -372,11 +453,14 @@ BEGIN
        SELECT 1 FROM public.estantes e
         WHERE cs.chave = 'estantes:' || e.sala_id::text || '|' || e.corredor_id::text)
      AND NOT EXISTS (
-       SELECT 1 FROM public.prateleiras p
-        WHERE cs.chave = 'prateleiras:' || p.estante_id::text)
+       -- contadores no formato so-da-sala (estantes de salas sem
+       -- corredor, geradas pelo sql/16)
+       SELECT 1 FROM public.estantes e
+        WHERE e.corredor_id IS NULL
+          AND cs.chave = 'estantes:' || e.sala_id::text)
      AND NOT EXISTS (
-       SELECT 1 FROM public.caixas cx
-        WHERE cs.chave = 'caixas:' || cx.prateleira_id::text);
+       SELECT 1 FROM public.prateleiras p
+        WHERE cs.chave = 'prateleiras:' || p.estante_id::text);
 
   GET DIAGNOSTICS v_apagados = ROW_COUNT;
   IF v_apagados > 0 THEN
@@ -390,6 +474,10 @@ END $$;
 --     -> proximo codigo daquela sala, sem consumir
 --   SELECT public.proximo_codigo('estantes', '<sala_id>|<corredor_id>');
 --     -> proximo codigo daquela sala naquele corredor
+--   SELECT public.proximo_codigo('estantes', '<sala_id>');
+--     -> proximo codigo da sala INTEIRA (salas sem corredor)
+--   SELECT public.gerar_codigo('estantes', '<sala_id>');
+--     -> consome (E-001, E-002 ... da sala inteira)
 --   SELECT public.gerar_codigo('estantes', '<sala_id>|<corredor_id>');
 --     -> consome (E-001, E-002 ... do par)
 --   SELECT public.proximo_codigo('prateleiras', '<estante_id>');
@@ -397,11 +485,14 @@ END $$;
 --        sem consumir
 --   SELECT public.gerar_codigo('prateleiras', '<estante_id>');
 --     -> consome (P-0001, P-0002 ... daquele estante)
---   SELECT public.proximo_codigo('caixas', '<prateleira_id>');
---     -> proximo codigo daquela prateleira (sala+corredor+
---        estante+prateleira), sem consumir
---   SELECT public.gerar_codigo('caixas', '<prateleira_id>');
---     -> consome (CX-000001, CX-000002 ... daquela prateleira)
+--   SELECT public.proximo_codigo('caixas', '<sala_id>');
+--     -> proximo codigo da sala INTEIRA, sem consumir
+--   SELECT public.gerar_codigo('caixas', '<sala_id>');
+--     -> consome (CX-000001, CX-000002 ... da sala inteira;
+--        unico na sala, nao reinicia na prateleira)
+--   SELECT codigo FROM public.caixas WHERE sala_id = '<sala_id>'
+--   ORDER BY codigo;
+--     -> apos a revisao, sem repetidos (renumeracao do bloco 3b)
 --   SELECT public.proximo_codigo('estantes');
 --     -> esperado: ERRO "exige o escopo"
 --   SELECT public.proximo_codigo('prateleiras');
@@ -418,5 +509,5 @@ END $$;
 --    WHERE indexname IN ('corredores_sala_codigo_unico',
 --                        'estantes_sala_corredor_codigo_unico',
 --                        'prateleiras_estante_codigo_unico',
---                        'caixas_prateleira_codigo_unico');
+--                        'caixas_sala_codigo_unico');
 -- ------------------------------------------------------------

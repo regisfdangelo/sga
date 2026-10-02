@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261001.15';
+  const VERSAO_APP = '20261001.20';
 
   /* ============================================================
      UTILITÁRIOS
@@ -465,7 +465,12 @@
   }
 
   /* ============================================================
-     MAPA DO ARQUIVO (painel): select de sala + grade de caixas
+     MAPA DO ARQUIVO (painel): select de sala + planta da sala.
+     A planta é um GRID ÚNICO de estantes: um QUADRADO por
+     estante (rótulo da estante fora do quadrado) e, dentro,
+     a grade uniforme das caixas da estante — verde = vazia,
+     laranja = parcial, cinza = cheia; descrição da caixa no
+     tooltip do mouse.
      ============================================================ */
   let mapaInit = false;
   let mapaSeq = 0;
@@ -520,11 +525,27 @@
     if (btn) btn.disabled = !sel || !sel.value;
   }
 
+  /** Zera os estilos inline de layout do mapa (medidas/variáveis). */
+  function limpaEstilosMapa(grid) {
+    grid.style.transform = '';
+    grid.style.width = '';
+    grid.style.height = '';
+    grid.style.gap = '';
+    grid.style.gridTemplateColumns = '';
+    grid.style.gridTemplateRows = '';
+    grid.style.justifyContent = '';
+    grid.style.alignContent = '';
+    grid.style.removeProperty('--mapa-est-lado');
+    grid.style.removeProperty('--mapa-quad-lado');
+  }
+
   /**
    * Encaixa a planta na área branca do pop-up, sem barra de
-   * rolagem: mede o tamanho natural (corredores lado a lado,
-   * estantes na vertical) e reduz (scale) até os itens
-   * preencheremem a área. Textos avulsos (carregando/erro) ficam sem escala.
+   * rolagem. Quando cabe, DISTRIBUI os quadrados das estantes
+   * por TODA a tela branca (espaços iguais) e aumenta o
+   * tamanho dos quadrados e das caixas até o limite da área;
+   * quando não dá nem o tamanho mínimo, volta ao tamanho
+   * natural e reduz (scale) o conjunto inteiro.
    */
   function encaixaMapa() {
     const popup = document.getElementById('mapa-popup');
@@ -532,20 +553,80 @@
     const grid = document.getElementById('mapa-estantes');
     if (!popup || popup.hidden || !frame || !grid) return;
     grid.style.transform = 'none';
-    grid.classList.toggle('planta', !!grid.querySelector('.mapa-corredor'));
-    if (!grid.classList.contains('planta')) return;
-    const folga = 20;  // respiro até a borda tracejada
-    const ex = (frame.clientWidth - folga) / Math.max(1, grid.offsetWidth);
-    const ey = (frame.clientHeight - folga) / Math.max(1, grid.offsetHeight);
-    grid.style.transform = `scale(${Math.min(1, ex, ey)})`;
+    if (!grid.querySelector('.mapa-est')) {
+      grid.classList.remove('planta');
+      limpaEstilosMapa(grid);
+      return;
+    }
+    grid.classList.add('planta');
+
+    const folga = 24;
+    const dispW = Math.max(0, frame.clientWidth - folga);
+    const dispH = Math.max(0, frame.clientHeight - folga);
+    const n = Number(grid.dataset.blocos) || 1;
+    const dimMax = Math.max(1, Number(grid.dataset.dimmax) || 1);
+    const gapX = 22, gapY = 26;
+    const sobre = 28;        // altura do rótulo da estante + espaço até o quadrado
+    const LADO_MIN = 110;    // abaixo disso o aumento atrapalha: fica o scale
+
+    const ladoDe = (c, m) => Math.floor(Math.min(
+      (dispW - gapX * (c - 1)) / c,
+      (dispH - gapY * (m - 1) - sobre * m) / m
+    ));
+
+    /**
+     * Escolhe colunas × linhas: prefere a combinação que COMPLETA
+     * a última linha (sem "buraco") e, entre as iguais, a que dá
+     * quadrados maiores — sempre que couber no tamanho mínimo.
+     */
+    let melhor = null;
+    for (let c = 1; c <= n; c++) {
+      const m = Math.ceil(n / c);
+      const lado = ladoDe(c, m);
+      if (lado < LADO_MIN) continue;
+      const resto = n % c;
+      const vazio = resto === 0 ? 0 : c - resto;
+      if (!melhor || vazio < melhor.vazio ||
+          (vazio === melhor.vazio && lado > melhor.lado)) {
+        melhor = { c, m, lado, vazio };
+      }
+    }
+
+    if (melhor) {
+      // Modo "preenche a tela": quadrados distribuídos por toda a
+      // área branca e maiores (caixas até 52px, contra 26px antes)
+      const { c: k, m, lado } = melhor;
+      const pad = 9, gapQuad = 5;
+      const quad = Math.max(12, Math.min(52,
+        Math.floor((lado - pad * 2 - gapQuad * (dimMax - 1)) / dimMax)));
+      grid.style.width = dispW + 'px';
+      grid.style.height = dispH + 'px';
+      grid.style.gap = `${gapY}px ${gapX}px`;
+      grid.style.gridTemplateColumns = `repeat(${k}, ${lado}px)`;
+      grid.style.gridTemplateRows = '';
+      grid.style.justifyContent = 'space-evenly';
+      grid.style.alignContent = 'space-evenly';
+      grid.style.setProperty('--mapa-est-lado', lado + 'px');
+      grid.style.setProperty('--mapa-quad-lado', quad + 'px');
+      return;
+    }
+
+    // Modo natural + scale: muita estante/caixa para a área
+    const k = Math.max(1, Math.min(n,
+      Math.ceil(Math.sqrt(n * (dispW / Math.max(1, dispH))))));
+    limpaEstilosMapa(grid);
+    grid.style.width = 'max-content';
+    grid.style.gridTemplateColumns = `repeat(${k}, max-content)`;
+    const ex = dispW / Math.max(1, grid.offsetWidth);
+    const ey = dispH / Math.max(1, grid.offsetHeight);
+    grid.style.transform = `scale(${Math.min(ex, ey)})`;
   }
 
   /**
-   * Carrega corredores, estantes, prateleiras, caixas e a ocupação
-   * da sala escolhida e monta a PLANTA do arquivo no pop-up:
-   * faixas de corredor com as estantes dentro e, em cada estante,
-   * as prateleiras com as suas caixas. `mapaSeq` descarta a
-   * resposta de uma troca anterior.
+   * Carrega estantes, caixas e a ocupação da sala escolhida e
+   * monta a PLANTA do arquivo no pop-up: um quadrado por estante
+   * com a grade das suas caixas. `mapaSeq` descarta a resposta
+   * de uma troca anterior.
    */
   async function renderMapaArquivo() {
     const sel = document.getElementById('mapa-sala');
@@ -567,25 +648,18 @@
     nome.textContent = (sel.options[sel.selectedIndex] || {}).textContent || '';
     nome.hidden = false;
     grid.innerHTML = '<p class="empty-state">Carregando…</p>';
-    grid.style.transform = 'none';
     grid.classList.remove('planta');
+    limpaEstilosMapa(grid);
     try {
       const escopo = `&sala_id=eq.${encodeURIComponent(salaId)}`;
-      const [corredores, estantes, caixas, conta] = await Promise.all([
-        SGA_API.list('corredores', `${escopo}&order=codigo,id`, 'id,codigo,descricao')
-          .catch(() => []),
-        SGA_API.list('estantes', `${escopo}&order=codigo,id`,
-          'id,codigo,descricao,corredor_id,corredor:corredores(codigo)')
-          .catch(() => SGA_API.list('estantes', `${escopo}&order=codigo,id`,
-            'id,codigo,descricao,corredor_id').catch(() => [])),
-        SGA_API.list('caixas', `${escopo}&order=codigo,id`,
-          'id,codigo,capacidade,estante_id,prateleira_id,prateleira:prateleiras(codigo)'),
+      const [estantes, caixas, conta] = await Promise.all([
+        SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`, 'id,codigo,descricao'),
+        SGA_API.listTudo('caixas', `${escopo}&order=codigo,id`,
+          'id,codigo,descricao,capacidade,estante_id'),
         contarDocumentosPorCaixa(),
       ]);
       if (minhaVez !== mapaSeq) return; // outra seleção já assumiu
-      const prateleiras = await prateleirasDaSala(estantes || []);
-      if (minhaVez !== mapaSeq) return;
-      desenharMapa(corredores || [], estantes || [], prateleiras, caixas || [], conta || {});
+      desenharMapa(estantes || [], caixas || [], conta || {});
     } catch (err) {
       if (minhaVez !== mapaSeq) return;
       grid.innerHTML = `<p class="empty-state">Erro ao montar o mapa: ${U.esc(err.message)}</p>`;
@@ -595,117 +669,54 @@
   }
 
   /**
-   * Prateleiras das estantes da sala. A prateleira não tem
-   * sala_id: busca por estante_id=in.(...); se a URL estourar,
-   * traz tudo e o desenho filtra pelo que é da sala.
+   * PLANTA DO ARQUIVO: grade única da sala — um QUADRADO por
+   * ESTANTE, com a descrição da estante na extremidade de FORA
+   * do quadrado e, dentro, a grade uniforme de todas as caixas
+   * da estante (só a cor — verde vazia, laranja parcial, cinza
+   * cheia; descrição da caixa no tooltip do mouse). O resultado
+   * é medido e reduzido (scale) por encaixaMapa() para caber
+   * no pop-up, sem barra de rolagem.
    */
-  async function prateleirasDaSala(estantes) {
-    const ids = estantes.map(e => e.id)
-      .filter(v => v !== null && v !== undefined && v !== '')
-      .map(encodeURIComponent);
-    if (!ids.length) return [];
-    return SGA_API.list('prateleiras',
-        `&estante_id=in.(${ids.join(',')})&order=codigo,id`,
-        'id,codigo,descricao,estante_id')
-      .catch(() => SGA_API.list('prateleiras', '&order=codigo,id&limit=5000',
-        'id,codigo,descricao,estante_id').catch(() => []));
-  }
-
-  /**
-   * PLANTA DO ARQUIVO: faixas = CORREDORES; dentro de cada faixa,
-   * um bloco por ESTANTE; dentro da estante, uma linha por
-   * PRATELEIRA com as suas caixas (só a cor — verde 0%, âmbar
-   * parcial, cinza 100%; localização e ocupação no tooltip). O
-   * resultado é medido e reduzido (scale) por encaixaMapa() para
-   * caber no pop-up, sem barra de rolagem.
-   */
-  function desenharMapa(corredores, estantes, prateleiras, caixas, conta) {
+  function desenharMapa(estantes, caixas, conta) {
     const grid = document.getElementById('mapa-estantes');
     const resumo = document.getElementById('mapa-resumo');
     if (!grid || !resumo) return;
 
-    if (!corredores.length && !estantes.length && !caixas.length) {
-      grid.innerHTML = '<p class="empty-state">Nenhum corredor, estante ou caixa cadastrado nesta sala</p>';
+    if (!estantes.length && !caixas.length) {
+      grid.innerHTML = '<p class="empty-state">Nenhuma estante ou caixa cadastrada nesta sala</p>';
       resumo.hidden = true;
       encaixaMapa();
       return;
     }
 
-    const cmp = (a, b, campo) =>
-      String(a[campo] || '').localeCompare(String(b[campo] || ''), 'pt', { numeric: true }) ||
+    const cmp = (a, b) =>
+      String(a.codigo || '').localeCompare(String(b.codigo || ''), 'pt', { numeric: true }) ||
       String(a.id).localeCompare(String(b.id));
     const vazio = v => v === null || v === undefined || v === '';
 
     const estIds = new Set(estantes.map(e => String(e.id)));
 
-    // Prateleiras da sala (+ as que só aparecem nas caixas)
-    const pratPorId = new Map();
-    prateleiras.forEach(p => {
-      if (vazio(p.estante_id) || estIds.has(String(p.estante_id))) pratPorId.set(String(p.id), p);
-    });
+    // Caixas agrupadas por estante; sem estante (ou estante de
+    // outra sala) ficam à parte num bloco extra
+    const caixasPorEst = new Map();
+    const semEstante = [];
     caixas.forEach(c => {
-      if (!vazio(c.prateleira_id) && !pratPorId.has(String(c.prateleira_id))) {
-        pratPorId.set(String(c.prateleira_id), {
-          id: c.prateleira_id,
-          codigo: c.prateleira?.codigo || '',
-          estante_id: c.estante_id,
-        });
+      const k = vazio(c.estante_id) ? null : String(c.estante_id);
+      if (k && estIds.has(k)) {
+        if (!caixasPorEst.has(k)) caixasPorEst.set(k, []);
+        caixasPorEst.get(k).push(c);
+      } else {
+        semEstante.push(c);
       }
     });
-
-    const pratsPorEst = new Map();   // estante_id -> prateleiras
-    pratPorId.forEach(p => {
-      const k = vazio(p.estante_id) ? '__sem_estante__' : String(p.estante_id);
-      if (!pratsPorEst.has(k)) pratsPorEst.set(k, []);
-      pratsPorEst.get(k).push(p);
-    });
-    pratsPorEst.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
-    let nPrateleiras = 0;
-    pratsPorEst.forEach((l, k) => {
-      if (k === '__sem_estante__' || estIds.has(k)) nPrateleiras += l.length;
-    });
-
-    const caixasPorPrat = new Map(); // prateleira_id -> caixas
-    caixas.forEach(c => {
-      if (vazio(c.prateleira_id)) return;
-      const k = String(c.prateleira_id);
-      if (!caixasPorPrat.has(k)) caixasPorPrat.set(k, []);
-      caixasPorPrat.get(k).push(c);
-    });
-    caixasPorPrat.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
-
-    const soltasPorEst = new Map();  // caixas sem prateleira, por estante
-    caixas.forEach(c => {
-      if (!vazio(c.prateleira_id)) return;
-      const k = vazio(c.estante_id) ? '__sem_estante__' : String(c.estante_id);
-      if (!soltasPorEst.has(k)) soltasPorEst.set(k, []);
-      soltasPorEst.get(k).push(c);
-    });
-    soltasPorEst.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
-
-    const corrPorId = new Map();     // corredores (mesmo os sem estante)
-    corredores.forEach(c => corrPorId.set(String(c.id), c));
-    estantes.forEach(e => {
-      if (vazio(e.corredor_id) || corrPorId.has(String(e.corredor_id))) return;
-      corrPorId.set(String(e.corredor_id),
-        { id: e.corredor_id, codigo: e.corredor?.codigo || '—', descricao: null });
-    });
-
-    const estPorCorr = new Map();    // corredor_id -> estantes
-    estantes.forEach(e => {
-      const k = vazio(e.corredor_id) ? '__sem_corredor__' : String(e.corredor_id);
-      if (!estPorCorr.has(k)) estPorCorr.set(k, []);
-      estPorCorr.get(k).push(e);
-    });
-    estPorCorr.forEach(l => l.sort((a, b) => cmp(a, b, 'codigo')));
+    caixasPorEst.forEach(l => l.sort(cmp));
+    semEstante.sort(cmp);
 
     let vazias = 0, parciais = 0, cheias = 0, somaPct = 0, comCap = 0;
-    const emitido = new Set();
 
-    const quadradinho = (c, local) => {
+    const quadradinho = c => {
       const docs = conta[c.id] || 0;
-      const cap = (c.capacidade === null || c.capacidade === '' || c.capacidade === undefined)
-        ? null : Number(c.capacidade);
+      const cap = vazio(c.capacidade) ? null : Number(c.capacidade);
       let pct = null;
       if (cap) {
         pct = Math.min(100, Math.round((docs / cap) * 100));
@@ -717,114 +728,46 @@
       if (classe === 'vazio') vazias++;
       else if (classe === 'cheia') cheias++;
       else parciais++;
-
-      const titulo = [local, c.prateleira?.codigo, c.codigo].filter(Boolean).join(' · ') +
-        (cap
-          ? ` — ${pct}% (${docs}/${cap} pastas)`
-          : ` — ${docs} documento(s), sem capacidade`);
-      emitido.add(String(c.id));
+      const titulo = c.descricao || c.codigo || '—';
       return `<div class="mapa-quad ${classe}" title="${U.esc(titulo)}"></div>`;
     };
 
-    // Uma linha da estante: rótulo da prateleira + as suas caixas
-    const linhaPrateleira = (rotulo, lista, local) =>
-      `<div class="mapa-prateleira">` +
-      `<span class="mapa-prat-rotulo">${U.esc(rotulo)}</span>` +
-      (lista.length
-        ? `<div class="mapa-prat-caixas">${lista.map(x => quadradinho(x, local)).join('')}</div>`
-        : '<span class="mapa-prat-vazia">sem caixas</span>') +
-      '</div>';
-
-    const blocoEstante = (e, corrCod) => {
-      const k = String(e.id);
-      const local = corrCod
-        ? `Corredor ${corrCod} · Estante ${e.codigo || '—'}`
-        : `Sem corredor · Estante ${e.codigo || '—'}`;
-      const titulo = U.esc(e.codigo || '—') +
-        (e.descricao ? ` — ${U.esc(e.descricao)}` : '');
-      const linhas = [];
-      (pratsPorEst.get(k) || []).forEach(p => linhas.push(
-        linhaPrateleira(p.codigo || '—', caixasPorPrat.get(String(p.id)) || [], local)));
-      const soltas = soltasPorEst.get(k) || [];
-      if (soltas.length) linhas.push(linhaPrateleira('—', soltas, local));
-      if (!linhas.length) linhas.push('<p class="mapa-estante-vazio">Nenhuma prateleira cadastrada</p>');
-      return `<section class="mapa-estante"><header class="mapa-estante-titulo">${titulo}</header>` +
-        linhas.join('') + '</section>';
-    };
-
-    const blocoSemEstante = () => {
-      const k = '__sem_estante__';
-      const local = 'Sem corredor · Sem estante';
-      const linhas = [];
-      (pratsPorEst.get(k) || []).forEach(p => linhas.push(
-        linhaPrateleira(p.codigo || '—', caixasPorPrat.get(String(p.id)) || [], local)));
-      const soltas = soltasPorEst.get(k) || [];
-      if (soltas.length) linhas.push(linhaPrateleira('—', soltas, local));
-      if (!linhas.length) return '';
-      return `<section class="mapa-estante"><header class="mapa-estante-titulo">Sem estante</header>` +
-        linhas.join('') + '</section>';
-    };
-
     /**
-     * Faixa do corredor: 9 estantes do lado esquerdo (posições
-     * 1-9) e as demais do lado direito (10-18 e além), com a rua
-     * no meio — apenas o que está cadastrado no banco, sem vagas
-     * simuladas. As estantes ficam na vertical (uma embaixo da
-     * outra).
+     * Um bloco de estante: a descrição da estante num rótulo
+     * FORA do quadrado; dentro do quadrado, a grade uniforme
+     * das caixas — colunas = raiz quadrada do nº de caixas,
+     * para o quadrado da estante sair o mais "quadrado" possível.
+     * `dimMax` guarda a maior dimensão (colunas/linhas) de toda
+     * a sala: encaixaMapa() usa para dimensionar as caixas.
      */
-    const banda = (rotulo, ests, corrCod, extra, sempre18) => {
-      const lado = lista =>
-        `<div class="mapa-corredor-lado">` +
-        lista.map(e => blocoEstante(e, corrCod)).join('') +
-        '</div>';
-      let esq = [], dir = [];
-      if (sempre18) {
-        esq = ests.slice(0, 9);
-        dir = ests.slice(9);
-      } else if (ests.length) {
-        const corte = Math.ceil(ests.length / 2);
-        esq = ests.slice(0, corte);
-        dir = ests.slice(corte);
-      }
-      const conteudo = ests.length
-        ? lado(esq) +
-          '<div class="mapa-corredor-rua"></div>' +
-          lado(dir)
-        : (extra ? '' : '<p class="mapa-estante-vazio">Nenhuma estante neste corredor</p>');
-      return `<section class="mapa-corredor">` +
-        `<span class="mapa-corredor-rotulo">${rotulo}</span>` +
-        `<div class="mapa-corredor-lados">${conteudo}</div>` +
-        (extra || '') +
+    let dimMax = 1;
+    const blocoEstante = (rotulo, lista) => {
+      const n = lista.length;
+      const cols = n ? Math.ceil(Math.sqrt(n)) : 1;
+      const linhas = n ? Math.ceil(n / cols) : 1;
+      dimMax = Math.max(dimMax, cols, linhas);
+      const dentro = n
+        ? `<div class="mapa-est-grade" style="grid-template-columns: repeat(${cols}, max-content)">` +
+          lista.map(quadradinho).join('') + '</div>'
+        : '<span class="mapa-est-vazia">sem caixas</span>';
+      return `<section class="mapa-est">` +
+        `<span class="mapa-est-rotulo" title="${U.esc(rotulo)}">${U.esc(rotulo)}</span>` +
+        `<div class="mapa-est-quadrado">${dentro}</div>` +
         '</section>';
     };
 
-    const bandas = [];
-    [...corrPorId.values()].sort((a, b) => cmp(a, b, 'codigo')).forEach(c => {
-      const ests = estPorCorr.get(String(c.id)) || [];
-      const rotulo = U.esc(`Corredor ${c.codigo || '—'}` + (c.descricao ? ` — ${c.descricao}` : ''));
-      bandas.push(banda(rotulo, ests, c.codigo || '—', '', true));
-    });
-    const semCorr = estPorCorr.get('__sem_corredor__') || [];
-    const pseudo = blocoSemEstante();
-    if (semCorr.length || pseudo) {
-      bandas.push(banda('Sem corredor', semCorr, null, pseudo));
-    }
+    const blocos = estantes.map(e =>
+      blocoEstante(e.descricao || e.codigo || '—', caixasPorEst.get(String(e.id)) || []));
+    if (semEstante.length) blocos.push(blocoEstante('Sem estante', semEstante));
 
-    grid.innerHTML = bandas.join('');
-
-    // Caixas que não couberam em nenhuma prateleira da sala: à parte
-    const sobras = caixas.filter(c => !emitido.has(String(c.id)));
-    if (sobras.length) {
-      grid.insertAdjacentHTML('beforeend',
-        banda('Fora do mapa', [], null,
-          `<section class="mapa-estante"><header class="mapa-estante-titulo">Caixas sem local</header>` +
-          linhaPrateleira('—', sobras, 'Sem local') + '</section>'));
-    }
+    // Medidas que encaixaMapa() precisa para distribuir/aumentar
+    grid.dataset.blocos = String(blocos.length);
+    grid.dataset.dimmax = String(dimMax);
+    grid.innerHTML = blocos.join('');
 
     const media = comCap ? Math.round(somaPct / comCap) : null;
     resumo.textContent =
-      `${corrPorId.size} corredor(es) · ${estantes.length} estante(s) · ` +
-      `${nPrateleiras} prateleira(s) · ${caixas.length} caixa(s) · ${vazias} vazia(s) · ` +
+      `${estantes.length} estante(s) · ${caixas.length} caixa(s) · ${vazias} vazia(s) · ` +
       `${parciais} parcial(is) · ${cheias} cheia(s)` +
       (media !== null ? ` · ocupação média ${media}%` : '');
     resumo.hidden = false;
@@ -1107,13 +1050,16 @@
 
     let caixas = [];
     try {
-      caixas = await SGA_API.list('caixas', '&order=codigo&limit=500',
-        'id,codigo,descricao,prateleira:prateleiras(codigo)');
+      caixas = await SGA_API.listTudo('caixas', '&order=codigo',
+        'id,codigo,descricao,sala:salas(codigo),prateleira:prateleiras(codigo)');
     } catch { /* mantém lista vazia */ }
-    // com a sequencia por prateleira, o mesmo CX-000001 se repete:
-    // o codigo da prateleira desambigua a opcao
+    // o codigo da caixa e unico DENTRO da sala, mas se repete em
+    // outra sala: sala + prateleira desambiguam a opcao
     const opsCaixa = (caixas || [])
-      .map(c => `<option value="${U.esc(c.id)}">${U.esc(c.codigo)}${c.prateleira?.codigo ? ' (' + U.esc(c.prateleira.codigo) + ')' : ''}${c.descricao ? ' — ' + U.esc(c.descricao) : ''}</option>`)
+      .map(c => {
+        const loc = [c.sala?.codigo, c.prateleira?.codigo].filter(Boolean).join(' / ');
+        return `<option value="${U.esc(c.id)}">${U.esc(c.codigo)}${loc ? ' (' + U.esc(loc) + ')' : ''}${c.descricao ? ' — ' + U.esc(c.descricao) : ''}</option>`;
+      })
       .join('');
 
     Modal.open(`Editar documento ${d.protocolo}`, `
@@ -1253,29 +1199,29 @@
     // Mesmo conceito do cadastro manual: os códigos vêm todos da
     // sequência do banco (gerar_codigo com escopo por nível), só
     // que de uma vez só — a RPC cria a sala e a estrutura inteira
-    // em uma transação (sql/15_gerar_sala_arquivo.sql).
+    // em uma transação (sql/16_gerar_sala_arquivo_sem_corredores.sql).
+    // A sala é gerada SEM corredores: a quantidade de estantes é
+    // livre e a estrutura é estante -> prateleira -> caixa.
     const formGerar = document.getElementById('form-gerar-sala');
     const resumoGerar = document.getElementById('gerar-resumo');
 
     const quantidadesGerar = () => {
       const n = id => parseInt(document.getElementById(id).value, 10) || 0;
-      const corr = n('gerar-corredores');
       const est = n('gerar-estantes');
       const prat = n('gerar-prateleiras');
       const cx = n('gerar-caixas');
-      const estantes = corr * est;
       return {
-        corr, est, prat, cx,
-        estantes,
-        prateleiras: estantes * prat,
-        caixas: estantes * prat * cx,
+        est, prat, cx,
+        estantes: est,
+        prateleiras: est * prat,
+        caixas: est * prat * cx,
       };
     };
 
     const mostraResumoGerar = prefixo => {
       const t = quantidadesGerar();
       resumoGerar.textContent =
-        `${prefixo}${t.corr} corredor(es) · ${t.estantes} estante(s) · ` +
+        `${prefixo}${t.estantes} estante(s) · ` +
         `${t.prateleiras} prateleira(s) · ${t.caixas} caixa(s)`;
     };
 
@@ -1287,16 +1233,13 @@
       const nome = document.getElementById('gerar-nome').value.trim();
       const t = quantidadesGerar();
       if (!nome) { U.toast('Informe o nome da sala.', 'warning'); return; }
-      if (t.corr < 1 || t.est < 1 || t.prat < 1 || t.cx < 1) {
+      if (t.est < 1 || t.prat < 1 || t.cx < 1) {
         U.toast('Informe as quantidades (mínimo 1 em cada campo).', 'warning'); return;
       }
-      if (t.corr > 99 || t.est > 99) {
-        U.toast('Quantidade máxima: 99 corredores e 99 estantes por corredor.', 'warning'); return;
-      }
       if (t.prat > 8) { U.toast('Máximo de 8 prateleiras por estante.', 'warning'); return; }
-      if (t.cx > 4) { U.toast('Máximo de 4 caixas por prateleira (32 por estante).', 'warning'); return; }
-      if (t.estantes > 999) {
-        U.toast('Total de estantes acima de 999 (capacidade máxima da sala).', 'warning'); return;
+      if (t.cx > 4) { U.toast('Máximo de 4 caixas por prateleira.', 'warning'); return; }
+      if (t.estantes > 10000) {
+        U.toast('Quantidade de estantes acima de 10000. Reduza.', 'warning'); return;
       }
       if (t.caixas > 10000) {
         U.toast('Total de caixas acima de 10000. Reduza as quantidades.', 'warning'); return;
@@ -1307,17 +1250,15 @@
       try {
         const r = await SGA_API.gerarSalaArquivo({
           nome,
-          corredores: t.corr,
-          estantes: t.est,
+          estantes: t.estantes,
           prateleiras: t.prat,
           caixas: t.cx,
         });
         U.toast(`Sala ${r.sala_codigo} gerada com sucesso!`, 'success');
         formGerar.reset();
         resumoGerar.textContent =
-          `Sala ${r.sala_codigo} gerada: ${r.corredores} corredor(es) · ` +
-          `${r.estantes} estante(s) · ${r.prateleiras} prateleira(s) · ` +
-          `${r.caixas} caixa(s).`;
+          `Sala ${r.sala_codigo} gerada: ${r.estantes} estante(s) · ` +
+          `${r.prateleiras} prateleira(s) · ${r.caixas} caixa(s).`;
         // Mesmas atualizações do cadastro manual: próximo código
         // da sala, selects de localização e mapa do Painel.
         refreshCodigos();
@@ -1436,12 +1377,20 @@
       const salaId = document.getElementById('estante-sala').value;
       const corredorId = document.getElementById('estante-corredor').value;
       const capacidade = parseInt(document.getElementById('estante-capacidade').value, 10);
-      if (!salaId || !corredorId || !capacidade) { U.toast('Preencha sala, corredor e capacidade.', 'warning'); return; }
+      // Corredor so e obrigatorio em salas que TEM corredores; nas
+      // geradas (sem corredor) a estante nasce com corredor_id NULL.
+      const corrObrig = salaTemCorredores(salaId);
+      if (!salaId || (corrObrig && !corredorId) || !capacidade) {
+        U.toast(corrObrig ? 'Preencha sala, corredor e capacidade.'
+                          : 'Preencha sala e capacidade.', 'warning');
+        return;
+      }
       if (capacidade > 8) { U.toast('Capacidade máxima: 8 prateleiras por estante.', 'warning'); return; }
       try {
-        const codigo = await SGA_API.gerarCodigo('estantes', [salaId, corredorId]);
+        const codigo = await SGA_API.gerarCodigo('estantes',
+          corredorId ? [salaId, corredorId] : salaId);
         await SGA_API.insert('estantes', {
-          codigo, sala_id: salaId, corredor_id: corredorId, capacidade,
+          codigo, sala_id: salaId, corredor_id: corredorId || null, capacidade,
           descricao: document.getElementById('estante-descricao').value.trim() || null,
         });
         U.toast('Estante cadastrada!', 'success');
@@ -1451,9 +1400,9 @@
       } catch (err) { U.toast(err.message, 'error'); }
     });
 
-    // Estante: a sequência é POR SALA + CORREDOR, então o próximo
-    // código só existe com os dois selecionados (e ao trocar um
-    // dos dois). A troca de sala limpa o corredor na cascata.
+    // Estante: a sequência é POR SALA + CORREDOR (ou só POR SALA
+    // em salas geradas, sem corredor). A troca de sala limpa o
+    // corredor na cascata.
     document.getElementById('estante-sala').addEventListener('change', () => {
       fillCorredoresDaSala();
       refreshCodigoEstante();
@@ -1466,8 +1415,12 @@
       const corredorId = document.getElementById('prat-corredor').value;
       const estanteId = document.getElementById('prat-estante').value;
       const capacidade = parseInt(document.getElementById('prat-capacidade').value, 10);
-      if (!salaId || !corredorId || !estanteId || !capacidade) {
-        U.toast('Preencha sala, corredor, estante e capacidade.', 'warning');
+      // Corredor so obrigatorio em salas que TEM corredores (o
+      // codigo da prateleira depende apenas da estante)
+      const corrObrig = salaTemCorredores(salaId);
+      if (!salaId || (corrObrig && !corredorId) || !estanteId || !capacidade) {
+        U.toast(corrObrig ? 'Preencha sala, corredor, estante e capacidade.'
+                          : 'Preencha sala, estante e capacidade.', 'warning');
         return;
       }
       if (capacidade > 4) { U.toast('Capacidade máxima: 4 caixas por prateleira (32 por estante).', 'warning'); return; }
@@ -1502,8 +1455,9 @@
       fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
       refreshCodigoPrateleira();
     });
-    // Prateleira: a sequencia e POR SALA + CORREDOR + ESTANTE, entao o
-    // proximo codigo so existe com os tres selecionados.
+    // Prateleira: a sequencia e POR ESTANTE (a prateleira guarda
+    // so a estante). Sem a estante selecionada nao ha proximo
+    // codigo a exibir.
     document.getElementById('prat-estante').addEventListener('change', refreshCodigoPrateleira);
 
     document.getElementById('form-caixa').addEventListener('submit', async e => {
@@ -1513,8 +1467,12 @@
       const estanteId = document.getElementById('caixa-estante').value;
       const prateleiraId = document.getElementById('caixa-prateleira').value;
       const capacidade = parseInt(document.getElementById('caixa-capacidade').value, 10);
-      if (!salaId || !corredorId || !estanteId || !prateleiraId || !capacidade) {
-        U.toast('Preencha sala, corredor, estante, prateleira e capacidade.', 'warning');
+      // Corredor so e obrigatorio em salas que TEM corredores; nas
+      // geradas (sem corredor) basta sala + estante + prateleira.
+      const corrObrig = salaTemCorredores(salaId);
+      if (!salaId || (corrObrig && !corredorId) || !estanteId || !prateleiraId || !capacidade) {
+        U.toast(corrObrig ? 'Preencha sala, corredor, estante, prateleira e capacidade.'
+                          : 'Preencha sala, estante, prateleira e capacidade.', 'warning');
         return;
       }
       if (capacidade > 5) { U.toast('Capacidade máxima: 5 pastas por caixa.', 'warning'); return; }
@@ -1526,7 +1484,7 @@
           U.toast('Prateleira já possui o máximo de 4 caixas.', 'warning');
           return;
         }
-        const codigo = await SGA_API.gerarCodigo('caixas', prateleiraId);
+        const codigo = await SGA_API.gerarCodigo('caixas', salaId);
         await SGA_API.insert('caixas', {
           codigo,
           sala_id: salaId,
@@ -1561,8 +1519,9 @@
       fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
       refreshCodigoCaixa();
     });
-    // Caixa: a sequencia e POR SALA + CORREDOR + ESTANTE + PRATELEIRA,
-    // entao o proximo codigo so existe com os quatro selecionados.
+    // Caixa: a sequência é POR SALA (CX-000001, CX-000002 ...
+    // em toda a sala), então o próximo código já existe com a
+    // sala escolhida.
     document.getElementById('caixa-prateleira').addEventListener('change', refreshCodigoCaixa);
 
     // Aba Pesquisa: navegador da sala selecionada (capacidade x ocupação)
@@ -1663,8 +1622,9 @@
 
   /**
    * Estante: sequencia POR SALA + CORREDOR (Sala A / Corr 1:
-   * E-001, E-002 ... Sala A / Corr 2: E-001 ...). Sem os dois
-   * selecionados nao ha proximo codigo a exibir.
+   * E-001, E-002 ... Sala A / Corr 2: E-001 ...). Em sala SEM
+   * corredor (gerada) o escopo e so-da-sala; em sala COM
+   * corredores, o corredor ainda e obrigatorio para o preview.
    */
   async function refreshCodigoEstante() {
     const el = document.getElementById('estante-codigo');
@@ -1673,16 +1633,18 @@
     if (!el || !selSala || !selCorr) return;
     const salaId = selSala.value;
     const corredorId = selCorr.value;
-    if (!salaId || !corredorId) { el.value = ''; return; }
-    const cod = await SGA_API.proximoCodigo('estantes', [salaId, corredorId]);
+    if (!salaId) { el.value = ''; return; }
+    if (!corredorId && salaTemCorredores(salaId)) { el.value = ''; return; }
+    const cod = await SGA_API.proximoCodigo('estantes',
+      corredorId ? [salaId, corredorId] : salaId);
     el.value = cod || '';
   }
 
   /**
-   * Prateleira: sequencia POR SALA + CORREDOR + ESTANTE (a
-   * prateleira so guarda o estante, e o estante ja pertence a
-   * aquela sala/corredor). Sem os tres selecionados nao ha
-   * proximo codigo a exibir.
+   * Prateleira: sequencia POR ESTANTE (a prateleira guarda so a
+   * estante, e a estante ja pertence a aquela sala/corredor).
+   * Sem a estante selecionada nao ha proximo codigo a exibir.
+   * O corredor (quando existe na sala) tambem e exigido aqui.
    */
   async function refreshCodigoPrateleira() {
     const el = document.getElementById('prat-codigo');
@@ -1690,29 +1652,23 @@
     const selCorr = document.getElementById('prat-corredor');
     const selEst = document.getElementById('prat-estante');
     if (!el || !selSala || !selCorr || !selEst) return;
-    if (!selSala.value || !selCorr.value || !selEst.value) { el.value = ''; return; }
+    if (!selSala.value || !selEst.value) { el.value = ''; return; }
+    if (!selCorr.value && salaTemCorredores(selSala.value)) { el.value = ''; return; }
     const cod = await SGA_API.proximoCodigo('prateleiras', selEst.value);
     el.value = cod || '';
   }
 
   /**
-   * Caixa: sequencia POR SALA + CORREDOR + ESTANTE + PRATELEIRA (a
-   * caixa so guarda a prateleira, e a prateleira ja pertence a
-   * aquela estante, corredor e sala). Sem os quatro selecionados
-   * nao ha proximo codigo a exibir.
+   * Caixa: sequencia POR SALA (o codigo e unico em toda a sala,
+   * nao reinicia na prateleira). Com a sala escolhida ja ha
+   * proximo codigo a exibir.
    */
   async function refreshCodigoCaixa() {
     const el = document.getElementById('caixa-codigo');
     const selSala = document.getElementById('caixa-sala');
-    const selCorr = document.getElementById('caixa-corredor');
-    const selEst = document.getElementById('caixa-estante');
-    const selPrat = document.getElementById('caixa-prateleira');
-    if (!el || !selSala || !selCorr || !selEst || !selPrat) return;
-    if (!selSala.value || !selCorr.value || !selEst.value || !selPrat.value) {
-      el.value = '';
-      return;
-    }
-    const cod = await SGA_API.proximoCodigo('caixas', selPrat.value);
+    if (!el || !selSala) return;
+    if (!selSala.value) { el.value = ''; return; }
+    const cod = await SGA_API.proximoCodigo('caixas', selSala.value);
     el.value = cod || '';
   }
 
@@ -1725,17 +1681,17 @@
     try {
       const [salas, estantes, prat, corr] = await Promise.all([
         // capacidade so existe apos o 12_capacidade; sem ela, refaz sem a coluna
-        SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao,capacidade')
-          .catch(() => SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao').catch(() => [])),
+        SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao,capacidade')
+          .catch(() => SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao').catch(() => [])),
         // corredor_id so existe apos o 10_corredores.sql; sem ele, refaz sem a coluna
-        SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id,corredor_id')
-          .catch(() => SGA_API.list('estantes', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => [])),
+        SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id,corredor_id')
+          .catch(() => SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id').catch(() => [])),
         // estante_id so existe desde o cadastro por estante; sem ele,
         // refaz sem a coluna e a cascata da caixa fica sem filtro
-        SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao,estante_id')
-          .catch(() => SGA_API.list('prateleiras', '&order=codigo&limit=500', 'id,codigo,descricao').catch(() => [])),
+        SGA_API.listTudo('prateleiras', '&order=codigo', 'id,codigo,descricao,estante_id')
+          .catch(() => SGA_API.listTudo('prateleiras', '&order=codigo', 'id,codigo,descricao').catch(() => [])),
         // tabela nova: se ainda não existe no banco, segue com lista vazia
-        SGA_API.list('corredores', '&order=codigo&limit=500', 'id,codigo,descricao,sala_id').catch(() => []),
+        SGA_API.listTudo('corredores', '&order=codigo', 'id,codigo,descricao,sala_id').catch(() => []),
       ]);
 
       salasCache = salas || [];
@@ -1800,6 +1756,12 @@
     const selCorr = document.getElementById('estante-corredor');
     if (selCorr) selCorr.value = '';
     fillCorredoresDo('estante-sala', 'estante-corredor');
+  }
+
+  /** true se a sala tem corredores (corredoresCache ja carregado). */
+  function salaTemCorredores(salaId) {
+    if (!salaId) return false;
+    return corredoresCache.some(c => String(c.sala_id) === String(salaId));
   }
 
   /** Select de corredores de um formulario: filtrado pela sala escolhida. */
@@ -1870,8 +1832,8 @@
     if (info) info.textContent = 'Caixa alocada: —';
     if (!salaId) return;
     try {
-      const caixas = await SGA_API.list(
-        'caixas', `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo&limit=500`,
+      const caixas = await SGA_API.listTudo(
+        'caixas', `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo`,
         'id,codigo,capacidade,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)');
       const conta = await contarDocumentosPorCaixa();
       const livre = (caixas || []).find(c => {
@@ -1897,7 +1859,7 @@
   /** Quantidade de documentos por caixa ({ caixa_id: n }). */
   async function contarDocumentosPorCaixa() {
     try {
-      const docs = await SGA_API.list('documentos', '&limit=10000', 'caixa_id');
+      const docs = await SGA_API.listTudo('documentos', '', 'caixa_id');
       const conta = {};
       (docs || []).forEach(d => {
         if (d.caixa_id) conta[d.caixa_id] = (conta[d.caixa_id] || 0) + 1;
@@ -1910,9 +1872,9 @@
 
   async function loadCaixasTable() {
     try {
-      const caixas = await SGA_API.list(
+      const caixas = await SGA_API.listTudo(
         'caixas',
-        '&order=codigo&limit=500',
+        '&order=codigo',
         'id,codigo,capacidade,descricao,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)'
       );
       const tbody = document.querySelector('#table-caixas tbody');

@@ -599,18 +599,15 @@ a { color: var(--primary); }
    mapa abre num pop-up em tela cheia (.mapa-popup):
    - topo: nome da sala + legenda + botão fechar;
    - .mapa-frame ocupa toda a área (a "sala" na tela inteira) e
-      NÃO tem barra de rolagem: o JS reduz a planta (scale) até
-      os itens preencherem a área branca;
-    - a planta é uma planta baixa, com corredores lado a lado,
-      na horizontal; em cada corredor, as 9 primeiras estantes
-      (posições 1-9) do lado esquerdo e as demais (10-18 e além)
-      do lado direito, com a rua no meio — só o que está
-      cadastrado no banco, sem vagas simuladas —
-      e, em cada estante, uma linha por PRATELEIRA com as suas
-      caixas — só a cor: verde = vazia (0%), âmbar =
-      parcial, cinza = cheia; localização e ocupação no tooltip
-      do mouse.
-    ============================================================ */
+       NÃO tem barra de rolagem: o JS reduz a planta (scale) até
+       os itens preencherem a área branca;
+   - a planta é um GRID ÚNICO da sala: um QUADRADO por ESTANTE
+       (rótulo com a descrição da estante na extremidade de FORA
+       do quadrado) e, dentro do quadrado, a grade uniforme de
+       todas as caixas da estante — só a cor: verde = vazia (0%),
+       laranja = parcial, cinza = cheia; a descrição da caixa
+       aparece no tooltip do mouse.
+   ============================================================ */
 .mapa-filtro {
   display: flex;
   align-items: center;
@@ -720,122 +717,71 @@ a { color: var(--primary); }
   gap: 1.2rem;
   width: 100%;               /* modo texto (carregando/erro) ocupa a sala inteira */
 }
-/* Planta baixa: corredores lado a lado, na horizontal; a largura
-   fica a do conteúdo para o JS medir e reduzir (scale) sem rolagem */
+/* Planta: os quadrados das estantes distribuídos por TODA a
+   tela branca; nº de colunas, lado dos quadrados e tamanho das
+   caixas são definidos pelo JS em encaixaMapa() (modo "preenche
+   a tela"); quando não cabe, volta ao tamanho natural e o JS
+   reduz (scale) o conjunto, sem rolagem */
 .mapa-estantes.planta {
-  flex-direction: row;
-  flex-wrap: nowrap;
-  width: max-content;
+  display: grid;
+  grid-auto-rows: max-content;
   flex: 0 0 auto;            /* não encolhe no flex: a medida fica fiel */
-  align-items: stretch;      /* todos os corredores com a mesma altura */
 }
 .mapa-estantes .empty-state { width: 100%; }
 
-/* Faixa do corredor: placa em cima; abaixo, os dois lados da rua */
-.mapa-corredor {
+/* Bloco da estante: rótulo FORA (em cima) do quadrado */
+.mapa-est {
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
-  background: #e9eef5;
-  border: 2px dashed #94a3b8;
-  border-radius: 12px;
-  padding: .55rem .7rem .7rem;
+  align-items: center;
+  gap: .45rem;
 }
-.mapa-corredor-rotulo {
-  display: inline-block;
-  align-self: flex-start;
-  margin: 0 0 .5rem .2rem;
+.mapa-est-rotulo {
+  max-width: 240px;
   padding: .14rem .8rem;
   border-radius: 999px;
   background: #0f172a;
   color: #fff;
   font-size: .66rem;
   font-weight: 700;
-  letter-spacing: .07em;
+  letter-spacing: .06em;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 2px 5px rgba(15, 23, 42, .3);
 }
-.mapa-corredor-lados {
+
+/* O QUADRADO da estante (a estante inteira, com as caixas
+   dentro); o lado é fixado pelo JS quando o mapa preenche a tela */
+.mapa-est-quadrado {
   display: flex;
-  align-items: stretch;      /* lados e rua com a mesma altura */
-  gap: .7rem;
-  flex: 1;
-}
-/* Lado do corredor: estantes empilhadas na vertical */
-.mapa-corredor-lado {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: .7rem;
-  flex: 0 0 auto;
-}
-/* A rua entre os dois lados */
-.mapa-corredor-rua {
-  flex: 0 0 auto;
-  width: 30px;
-  border-left: 2px dashed #94a3b8;
-  border-right: 2px dashed #94a3b8;
-  background: #dce5f0;
-  border-radius: 6px;
+  width: var(--mapa-est-lado, auto);
+  height: var(--mapa-est-lado, auto);
+  padding: .55rem;
+  background: #fff;
+  border: 2px solid #94a3b8;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
 }
 
-/* Bloco da estante (prateleiras empilhadas) */
-.mapa-estante {
-  flex: 0 0 auto;
-  background: #fff;
-  border: 1.5px solid #cbd5e1;
-  border-radius: 8px;
-  padding: .4rem .5rem .45rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+/* Grade uniforme das caixas dentro da estante (colunas via JS) */
+.mapa-est-grade {
+  display: grid;
+  grid-auto-rows: max-content;
+  gap: .3rem;
 }
-.mapa-estante-titulo {
-  margin-bottom: .3rem;
-  padding-bottom: .2rem;
-  border-bottom: 1px dashed #e2e8f0;
-  font-size: .66rem;
-  font-weight: 700;
-  letter-spacing: .03em;
-  color: #475569;
-}
-.mapa-estante-vazio {
-  padding: .4rem 0;
-  text-align: center;
+.mapa-est-vazia {
   font-size: .68rem;
   font-style: italic;
   color: var(--text-muted);
 }
 
-/* Linha de prateleira: rótulo + as caixas nela guardadas */
-.mapa-prateleira {
-  display: flex;
-  align-items: center;
-  gap: .4rem;
-  margin-bottom: .25rem;
-}
-.mapa-prateleira:last-child { margin-bottom: 0; }
-.mapa-prat-rotulo {
-  flex: 0 0 auto;
-  min-width: 52px;
-  font-size: .6rem;
-  font-weight: 700;
-  letter-spacing: .03em;
-  color: #64748b;
-  font-variant-numeric: tabular-nums;
-}
-.mapa-prat-caixas {
-  display: flex;
-  gap: .25rem;
-}
-.mapa-prat-vazia {
-  font-size: .6rem;
-  font-style: italic;
-  color: #94a3b8;
-}
-
 .mapa-quad {
-  width: 26px;
-  height: 26px;
+  width: var(--mapa-quad-lado, 26px);
+  height: var(--mapa-quad-lado, 26px);
   border-radius: 5px;
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
   cursor: help;
@@ -848,7 +794,7 @@ a { color: var(--primary); }
   z-index: 1;
 }
 .mapa-quad.vazio   { background: #22c55e; }
-.mapa-quad.parcial { background: #f59e0b; }
+.mapa-quad.parcial { background: #f97316; }
 .mapa-quad.cheia   { background: #6b7280; }
 
 .mapa-resumo {
@@ -860,7 +806,7 @@ a { color: var(--primary); }
 .mapa-resumo[hidden] { display: none; }
 
 @media (max-width: 560px) {
-  .mapa-quad { width: 24px; height: 24px; }
+  .mapa-quad { width: var(--mapa-quad-lado, 20px); height: var(--mapa-quad-lado, 20px); }
   .mapa-popup { padding: .5rem; }
   .mapa-popup-topo { gap: .6rem; }
   .mapa-filtro { width: 100%; }

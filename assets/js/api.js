@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261001.15';
+  const versao = '20261001.20';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -257,6 +257,46 @@ const SGA_API = (() => {
    */
   const list = (table, query = '', select = '*') =>
     request('GET', `/rest/v1/${table}?select=${select}${query}`);
+
+  /**
+   * Listagem COMPLETA, paginando com limit/offset ate' virar uma
+   * pagina curta. O PostgREST do Supabase corta a resposta no
+   * "Max rows" (padrao 1000) mesmo quando o codigo pede limit
+   * maior: o mapa de uma sala grande so recebia as primeiras
+   * 1000 caixas e o resto aparecia "sem caixas".
+   * `query` nao precisa trazer limit/offset (saio removidos aqui).
+   * Mantenha o `order` ESTAVEL (ex.: order=codigo,id) para a
+   * paginacao nao pular nem repetir linha.
+   */
+  async function listTudo(table, query = '', select = '*', pagina = 1000) {
+    let base = String(query)
+      .replace(/([?&])limit=\d+/gi, '$1')
+      .replace(/([?&])offset=\d+/gi, '$1')
+      .replace(/[?&]+$/, '');
+    if (base === '?' || base === '&') base = '';
+    const todas = [];
+    let offset = 0;
+    let paginaAnterior = null;
+    for (let rodada = 0; rodada < 200; rodada++) {
+      const linhas = await request(
+        'GET',
+        `/rest/v1/${table}?select=${select}${base}&limit=${pagina}&offset=${offset}`
+      );
+      if (!Array.isArray(linhas) || !linhas.length) break;
+      // servidor ignorando o offset devolveria a mesma pagina de
+      // novo: para aqui (sem duplicar) em vez de girar em roda
+      const cache = JSON.stringify(linhas);
+      if (cache === paginaAnterior) {
+        console.warn(`listTudo(${table}): pagina repetida (offset ignorado?); parando em ${todas.length} linha(s).`);
+        break;
+      }
+      paginaAnterior = cache;
+      todas.push(...linhas);
+      if (linhas.length < pagina) break;
+      offset += pagina;
+    }
+    return todas;
+  }
   const insert = (table, data) =>
     request('POST', `/rest/v1/${table}`, data, { headers: { Prefer: 'return=representation' } });
   const update = (table, id, data) =>
@@ -300,6 +340,7 @@ const SGA_API = (() => {
      recebem o escopo `p_escopo`:
        corredor -> por sala            (Sala A: C-001, C-002 ...)
        estante  -> por sala + corredor (Sala A/Corr 1: E-001 ...)
+       caixa    -> por sala            (Sala A: CX-000001, CX-000002 ...)
      — sql/14_codigos_escopo_localizacoes.sql.
      ---------------------------------------------------------- */
   const RE_CODIGO_AUTO = /^[A-Z]+-\d+$/;
@@ -307,7 +348,7 @@ const SGA_API = (() => {
   /**
    * Escopo no formato que o banco espera: valores na ordem das
    * colunas separados por "|". Aceita um valor só (corredor;
-   * prateleira = estante; caixa = prateleira) ou uma lista
+   * prateleira = estante; caixa = sala) ou uma lista
    * (estante: [sala, corredor]).
    */
   function montaEscopo(escopo) {
@@ -319,7 +360,7 @@ const SGA_API = (() => {
 
   /**
    * `escopo` = id da sala; lista [sala, corredor] no estante;
-   * id da estante na prateleira; id da prateleira na caixa.
+   * id da estante na prateleira; id da sala na caixa.
    */
   async function gerarCodigo(chave, escopo) {
     const body = { p_chave: chave };
@@ -349,8 +390,7 @@ const SGA_API = (() => {
    * Próximo código — apenas para exibição, NÃO consome a sequência.
    * Com `escopo`, devolve o próximo código daquele escopo
    * (sala no corredor; sala+corredor no estante; estante na
-   * prateleira; prateleira na caixa = sala+corredor+estante+
-   * prateleira).
+   * prateleira; sala na caixa = código único em toda a sala).
    */
   async function proximoCodigo(chave, escopo) {
     try {
@@ -365,20 +405,18 @@ const SGA_API = (() => {
   }
 
   /**
-   * Gera uma sala de arquivo COMPLETA (corredores, estantes,
-   * prateleiras e caixas) em uma unica transacao — aba "Gerar
+   * Gera uma sala de arquivo COMPLETA (estantes, prateleiras e
+   * caixas — SEM corredores) em uma unica transacao — aba "Gerar
    * Sala de Arquivo". Os codigos vem da MESMA funcao
    * gerar_codigo() do cadastro manual, com o escopo de cada
-   * nivel — sql/15_gerar_sala_arquivo.sql.
-   * Devolve { sala_id, sala_codigo, corredores, estantes,
-   *           prateleiras, caixas }.
+   * nivel — sql/16_gerar_sala_arquivo_sem_corredores.sql.
+   * Devolve { sala_id, sala_codigo, estantes, prateleiras, caixas }.
    */
-  async function gerarSalaArquivo({ nome, corredores, estantes, prateleiras, caixas }) {
+  async function gerarSalaArquivo({ nome, estantes, prateleiras, caixas }) {
     let r;
     try {
       r = await request('POST', '/rest/v1/rpc/gerar_sala_arquivo', {
         p_nome: nome,
-        p_corredores: corredores,
         p_estantes: estantes,
         p_prateleiras: prateleiras,
         p_caixas: caixas,
@@ -386,12 +424,12 @@ const SGA_API = (() => {
     } catch (err) {
       // 42883 = undefined_function: o banco ainda não tem a RPC
       if (err.code === '42883' && /gerar_sala_arquivo/i.test(err.message || '')) {
-        throw new Error('RPC gerar_sala_arquivo ausente. Execute sql/15_gerar_sala_arquivo.sql no banco.');
+        throw new Error('RPC gerar_sala_arquivo ausente/atualizada. Execute sql/16_gerar_sala_arquivo_sem_corredores.sql no banco.');
       }
       throw err;
     }
     if (!r || !r.sala_codigo) {
-      throw new Error('Resposta inesperada da RPC gerar_sala_arquivo. Execute sql/15_gerar_sala_arquivo.sql no banco.');
+      throw new Error('Resposta inesperada da RPC gerar_sala_arquivo. Execute sql/16_gerar_sala_arquivo_sem_corredores.sql no banco.');
     }
     return r;
   }
@@ -532,6 +570,7 @@ const SGA_API = (() => {
     revalidarPerfil,
     PERFIS,
     list,
+    listTudo,
     insert,
     update,
     remove,
