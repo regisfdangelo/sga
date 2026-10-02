@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.27">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.29">
 </head>
 <body class="app-page">
 
@@ -140,7 +140,7 @@
           </div>
 
           <!-- Mapa do arquivo: escolher a sala abre o mapa em pop-up -->
-          <article class="panel">
+          <article class="panel mapa-painel">
             <header class="panel-header">
               <h3>Mapa do Arquivo</h3>
               <div class="mapa-filtro">
@@ -151,9 +151,6 @@
                 <button type="button" class="btn btn-primary btn-sm" id="mapa-abrir" disabled>Ver mapa</button>
               </div>
             </header>
-            <div class="panel-body">
-              <p class="empty-state">Selecione uma sala acima: o mapa abre em tela cheia, sem barra de rolagem.</p>
-            </div>
           </article>
 
           <div class="grid-2col">
@@ -281,9 +278,8 @@
           <div class="tabs" role="tablist">
             <button class="tab active" data-tab="tab-documento" role="tab">Documentos</button>
             <button class="tab" data-tab="tab-local" role="tab">Editar Arquivo</button>
-            <button class="tab" data-tab="tab-gerar" role="tab">Gerar Sala de Arquivo</button>
-            <button class="tab" data-tab="tab-pesquisa" role="tab">Pesquisa</button>
-          </div>
+<button class="tab" data-tab="tab-gerar" role="tab">Gerar Sala de Arquivo</button>
+        </div>
 
           <!-- Aba Documentos -->
           <div class="tab-panel active" id="tab-documento">
@@ -445,7 +441,7 @@
                   <div class="form-group">
                     <label for="ed-busca">Filtrar estante, prateleira ou caixa</label>
                     <input type="search" id="ed-busca" autocomplete="off"
-                      placeholder="Ex.: E-003, CX-000012, prateleira superior">
+                      placeholder="Ex.: E-003,P-0001, CX-000012">
                   </div>
                   <button type="submit" class="btn btn-primary" id="btn-ed-buscar" disabled>Buscar</button>
                   <button type="button" class="btn btn-ghost" id="btn-ed-limpar-busca" disabled>Limpar</button>
@@ -511,56 +507,7 @@
             </article>
           </div>
 
-          <!-- Aba Pesquisa (navegador de salas + caixas cadastradas) -->
-          <div class="tab-panel" id="tab-pesquisa">
-            <article class="panel">
-              <header class="panel-header"><h3>Salas de Arquivo</h3></header>
-              <div class="panel-body">
-                <div class="sala-navegador">
-                  <div class="form-group">
-                    <label for="pesq-sala">Sala</label>
-                    <select id="pesq-sala"><option value="">Selecione a sala…</option></select>
-                  </div>
-                  <div id="pesq-sala-info" class="sala-info" hidden>
-                    <div class="sala-info-item">
-                      <span>Código</span>
-                      <strong id="pesq-sala-codigo">—</strong>
-                    </div>
-                    <div class="sala-info-item">
-                      <span>Capacidade (estantes)</span>
-                      <strong id="pesq-sala-capacidade">—</strong>
-                    </div>
-                    <div class="sala-info-item">
-                      <span>Ocupação (estantes)</span>
-                      <strong id="pesq-sala-ocupacao">—</strong>
-                    </div>
-                    <div class="sala-info-item">
-                      <span>Ocupação %</span>
-                      <strong id="pesq-sala-percent">—</strong>
-                    </div>
-                    <div class="ocup-bar" role="progressbar" aria-label="Ocupação da sala">
-                      <div class="ocup-bar-fill" id="pesq-sala-bar" style="width: 0"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article class="panel">
-              <header class="panel-header"><h3>Caixas Cadastradas</h3></header>
-              <div class="panel-body table-wrap">
-                <table class="data-table" id="table-caixas">
-                  <thead>
-                    <tr><th>Código</th><th>Sala</th><th>Estante</th><th>Prateleira</th><th>Capacidade</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr><td colspan="5" class="empty-state">Nenhuma caixa cadastrada</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </div>
-        </section>
+          </section>
 
         <!-- ============ EMPRÉSTIMO / DEVOLUÇÃO ============ -->
         <section class="section" id="section-emprestimo">
@@ -856,8 +803,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261002.27"></script>
-  <script src="assets/js/api.js?v=20261002.27"></script>
-  <script src="assets/js/app.js?v=20261002.27"></script>
+  <script src="assets/js/config.js?v=20261002.29"></script>
+  <script src="assets/js/api.js?v=20261002.29"></script>
+  <script src="assets/js/app.js?v=20261002.29"></script>
 </body>
 </html>

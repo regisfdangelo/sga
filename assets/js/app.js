@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261002.27';
+  const VERSAO_APP = '20261002.29';
 
   /* ============================================================
      UTILITÁRIOS
@@ -1411,12 +1411,11 @@
           `Sala ${r.sala_codigo} gerada (${t.lin}x${t.col}): ` +
           `${r.estantes} estante(s) · ` +
           `${r.prateleiras} prateleira(s) · ${r.caixas} caixa(s).`;
-        // Atualiza os selects de sala (Editar Arquivo/Pesquisa/
-        // Documento), a tabela de caixas e o mapa do Painel, e já
-        // deixa a sala recem-gerada aberta no editor.
+        // Atualiza os selects de sala (Editar Arquivo e
+        // Documento) e o mapa do Painel, e já deixa a sala
+        // recem-gerada aberta no editor.
         refreshCodigos();
         await loadLocalSelects();
-        loadCaixasTable();
         sincronizaEditorSala(r.sala_id);
       } catch (err) {
         U.toast(err.message, 'error');
@@ -1503,15 +1502,11 @@
     // renderEstrutura() e as acoes chegam por delegacao de evento.
     initEditarArquivo();
 
-    // Aba Pesquisa: navegador da sala selecionada (capacidade x ocupação)
-    document.getElementById('pesq-sala').addEventListener('change', mostrarInfoSalaPesquisa);
-
     // Documento: ao escolher a sala, aloca sozinho a 1ª caixa livre
     document.getElementById('doc-sala').addEventListener('change', alocarCaixaPorSala);
 
     // Carregamentos iniciais
     loadLocalSelects();
-    loadCaixasTable();
   }
 
   async function refreshProtocolo() {
@@ -1543,64 +1538,26 @@
     if (cod) el.value = cod;
   }
 
-  let estantesCache = [];
   let salasCache = [];
 
   async function loadLocalSelects() {
     try {
-      const [salas, estantes] = await Promise.all([
-        // capacidade/linha/coluna: 12_capacidade e 17_gerar_sala_arquivo.
-        // Banco sem as colunas volta para a seleção mínima.
-        SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao,capacidade,linha,coluna')
-          .catch(() => SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao').catch(() => [])),
-        // corredor_id/linha/coluna: 10_corredores e 17_ Sem elas, o
-        // editor e a pesquisa seguem só com sala + código.
-        SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id,linha,coluna')
-          .catch(() => SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id').catch(() => [])),
-      ]);
+      // capacidade/linha/coluna: 12_capacidade e 17_gerar_sala_arquivo.
+      // Banco sem as colunas volta para a seleção mínima.
+      const salas = await SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao,capacidade,linha,coluna')
+        .catch(() => SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao').catch(() => []));
 
       salasCache = salas || [];
-      estantesCache = estantes || [];
 
       fillSelect('ed-sala', salas, 'Selecione a sala…');
-      fillSelect('pesq-sala', salas, 'Selecione a sala…');
       fillSelect('doc-sala', salas, 'Selecione a sala…');
 
-      mostrarInfoSalaPesquisa();
       alocarCaixaPorSala();
       sincronizaEditorSala();
     } catch (err) {
       // silencioso no carregamento inicial (tabelas podem ainda não existir)
       console.warn('loadLocalSelects:', err.message);
     }
-  }
-
-  /**
-   * Aba Pesquisa (Cadastro): mostra capacidade e ocupação
-   * (quantidade de estantes) da sala selecionada no navegador.
-   */
-  function mostrarInfoSalaPesquisa() {
-    const sel = document.getElementById('pesq-sala');
-    const box = document.getElementById('pesq-sala-info');
-    if (!sel || !box) return;
-    const salaId = sel.value;
-    if (!salaId) { box.hidden = true; return; }
-
-    const sala = salasCache.find(s => String(s.id) === String(salaId));
-    const ocupacao = estantesCache.filter(e => String(e.sala_id) === String(salaId)).length;
-    const capacidade = sala && sala.capacidade !== null && sala.capacidade !== ''
-      ? Number(sala.capacidade) : null;
-
-    document.getElementById('pesq-sala-codigo').textContent = (sala && sala.codigo) || '—';
-    document.getElementById('pesq-sala-capacidade').textContent = capacidade !== null ? capacidade : '—';
-    document.getElementById('pesq-sala-ocupacao').textContent = ocupacao;
-
-    const pct = capacidade ? Math.round((ocupacao / capacidade) * 100) : null;
-    document.getElementById('pesq-sala-percent').textContent = pct !== null ? `${pct}%` : '—';
-    const fill = document.getElementById('pesq-sala-bar');
-    fill.style.width = pct !== null ? `${Math.min(pct, 100)}%` : '0%';
-    fill.classList.toggle('cheia', pct !== null && pct >= 100);
-    box.hidden = false;
   }
 
   /* ============================================================
@@ -2400,7 +2357,6 @@
       await SGA_API.removerCaixa(cx.id);
       U.toast(`Caixa ${cx.codigo} removida.`, 'success');
       loadLocalSelects();
-      loadCaixasTable();
       await carregarEstruturaSala();
     } catch (err) { U.toast(err.message, 'error'); }
   }
@@ -2467,29 +2423,6 @@
     } catch {
       return {};
     }
-  }
-
-  async function loadCaixasTable() {
-    try {
-      const caixas = await SGA_API.listTudo(
-        'caixas',
-        '&order=codigo',
-        'id,codigo,capacidade,descricao,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)'
-      );
-      const tbody = document.querySelector('#table-caixas tbody');
-      if (!caixas || !caixas.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhuma caixa cadastrada</td></tr>';
-        return;
-      }
-      tbody.innerHTML = caixas.map(c => `
-        <tr>
-          <td><strong>${U.esc(c.codigo)}</strong></td>
-          <td>${U.esc(c.sala?.codigo || '—')}</td>
-          <td>${U.esc(c.estante?.codigo || '—')}</td>
-          <td>${U.esc(c.prateleira?.codigo || '—')}</td>
-          <td>${U.esc(c.capacidade ?? '—')}</td>
-        </tr>`).join('');
-    } catch { /* ignore */ }
   }
 
   /* ============================================================

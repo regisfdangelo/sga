@@ -608,6 +608,13 @@ a { color: var(--primary); }
        laranja = parcial, cinza = cheia; a descrição da caixa
        aparece no tooltip do mouse.
    ============================================================ */
+
+/* O mapa abre em pop-up em tela cheia, então no Painel esse painel
+   fica só com o cabeçalho (título + filtro de sala): sem linha
+   divisória embaixo e sem corpo vazio ocupando espaço. */
+.mapa-painel { margin-bottom: 1rem; }
+.mapa-painel .panel-header { border-bottom: none; }
+
 .mapa-filtro {
   display: flex;
   align-items: center;
@@ -1013,44 +1020,11 @@ a { color: var(--primary); }
 #modal-body .form-stack input { width: 100%; }
 #modal-body .ed-aviso { margin-top: .2rem; }
 
-#tab-pesquisa .panel { margin-bottom: 1rem; }
-#tab-pesquisa .panel-header { padding: .6rem 1rem; }
-#tab-pesquisa .panel-header h3 { font-size: .92rem; }
-
 /* ============================================================
-   ABA PESQUISA (Cadastro) — navegador de salas: capacidade e
-   ocupação da sala selecionada
+   TABELA DA ÁRVORE (Editar Arquivo)
    ============================================================ */
-.sala-navegador { display: flex; flex-direction: column; gap: .75rem; }
-.sala-navegador .form-group { max-width: 420px; }
-.sala-info {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: .6rem 1.25rem;
-}
-.sala-info[hidden] { display: none; }
-.sala-info-item { display: flex; flex-direction: column; gap: .1rem; }
-.sala-info-item span { font-size: .75rem; color: var(--text-muted); }
-.sala-info-item strong { font-size: 1.05rem; color: var(--text); }
-.ocup-bar {
-  grid-column: 1 / -1;
-  height: 14px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.ocup-bar-fill {
-  height: 100%;
-  background: var(--primary-light);
-  border-radius: 999px;
-  transition: width .3s ease;
-}
-.ocup-bar-fill.cheia { background: var(--danger); }
-#tab-local .data-table,
-#tab-pesquisa .data-table { font-size: .84rem; }
-#tab-local .data-table td,
-#tab-pesquisa .data-table td { padding: .5rem .7rem; }
+#tab-local .data-table { font-size: .84rem; }
+#tab-local .data-table td { padding: .5rem .7rem; }
 
 /* Resultados da pesquisa (section-pesquisa): fonte um pouco menor;
    protocolo e localização sempre inteiros em uma única linha */
