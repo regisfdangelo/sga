@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261001.20';
+  const versao = '20261002.21';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -409,10 +409,15 @@ const SGA_API = (() => {
    * caixas — SEM corredores) em uma unica transacao — aba "Gerar
    * Sala de Arquivo". Os codigos vem da MESMA funcao
    * gerar_codigo() do cadastro manual, com o escopo de cada
-   * nivel — sql/16_gerar_sala_arquivo_sem_corredores.sql.
-   * Devolve { sala_id, sala_codigo, estantes, prateleiras, caixas }.
+   * nivel — sql/17_gerar_sala_arquivo_linha_coluna.sql.
+   *
+   * `linhas` x `colunas` e a grade da sala: as `estantes`
+   * estantes sao distribuidas nessa grade (a partir da
+   * posicao linha 1 / coluna 1, na ordem de leitura).
+   * Devolve { sala_id, sala_codigo, estantes, prateleiras,
+   * caixas, linhas, colunas }.
    */
-  async function gerarSalaArquivo({ nome, estantes, prateleiras, caixas }) {
+  async function gerarSalaArquivo({ nome, estantes, prateleiras, caixas, linhas, colunas }) {
     let r;
     try {
       r = await request('POST', '/rest/v1/rpc/gerar_sala_arquivo', {
@@ -420,16 +425,18 @@ const SGA_API = (() => {
         p_estantes: estantes,
         p_prateleiras: prateleiras,
         p_caixas: caixas,
+        p_linhas: linhas,
+        p_colunas: colunas,
       });
     } catch (err) {
       // 42883 = undefined_function: o banco ainda não tem a RPC
       if (err.code === '42883' && /gerar_sala_arquivo/i.test(err.message || '')) {
-        throw new Error('RPC gerar_sala_arquivo ausente/atualizada. Execute sql/16_gerar_sala_arquivo_sem_corredores.sql no banco.');
+        throw new Error('RPC gerar_sala_arquivo ausente/atualizada. Execute sql/17_gerar_sala_arquivo_linha_coluna.sql no banco.');
       }
       throw err;
     }
     if (!r || !r.sala_codigo) {
-      throw new Error('Resposta inesperada da RPC gerar_sala_arquivo. Execute sql/16_gerar_sala_arquivo_sem_corredores.sql no banco.');
+      throw new Error('Resposta inesperada da RPC gerar_sala_arquivo. Execute sql/17_gerar_sala_arquivo_linha_coluna.sql no banco.');
     }
     return r;
   }

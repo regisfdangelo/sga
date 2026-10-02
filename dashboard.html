@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261001.20">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.21">
 </head>
 <body class="app-page">
 
@@ -555,6 +555,14 @@
                       <input type="text" id="gerar-nome" required maxlength="120" placeholder="Ex.: Arquivo Central">
                     </div>
                     <div class="form-group">
+                      <label for="gerar-linha">Linha *</label>
+                      <input type="number" id="gerar-linha" required min="1" max="100" value="3">
+                    </div>
+                    <div class="form-group">
+                      <label for="gerar-coluna">Coluna *</label>
+                      <input type="number" id="gerar-coluna" required min="1" max="100" value="6">
+                    </div>
+                    <div class="form-group">
                       <label for="gerar-estantes">Quantidade de Estante</label>
                       <input type="number" id="gerar-estantes" required min="1" value="18">
                     </div>
@@ -921,8 +929,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261001.20"></script>
-  <script src="assets/js/api.js?v=20261001.20"></script>
-  <script src="assets/js/app.js?v=20261001.20"></script>
+  <script src="assets/js/config.js?v=20261002.21"></script>
+  <script src="assets/js/api.js?v=20261002.21"></script>
+  <script src="assets/js/app.js?v=20261002.21"></script>
 </body>
 </html>

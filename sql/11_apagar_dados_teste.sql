@@ -9,7 +9,7 @@
 --     documentos, emprestimos, salas, corredores, estantes,
 --     prateleiras, caixas, auditoria, protocolo_sequencia,
 --     codigo_sequencia (inclui as salas geradas pela aba
---     "Gerar Sala de Arquivo" - sql/16) e qualquer outra que
+--     "Gerar Sala de Arquivo" - sql/17) e qualquer outra que
 --     existir no public.
 --
 -- O que mantem:

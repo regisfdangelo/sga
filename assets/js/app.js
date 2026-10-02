@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261001.20';
+  const VERSAO_APP = '20261002.21';
 
   /* ============================================================
      UTILITÁRIOS
@@ -474,8 +474,13 @@
      ============================================================ */
   let mapaInit = false;
   let mapaSeq = 0;
+  let mapaSalas = [];
 
-  /** Preenche o select de salas; escolher uma abre o pop-up do mapa. */
+  /**
+   * Preenche o select de salas do Painel. O mapa NÃO abre aqui:
+   * nem ao entrar na seção nem ao escolher a sala — só com o
+   * botão "Ver mapa" (habilitado quando há sala escolhida).
+   */
   async function initMapaArquivo() {
     const sel = document.getElementById('mapa-sala');
     if (!sel) return;
@@ -483,7 +488,9 @@
       mapaInit = true;
       sel.addEventListener('change', () => {
         atualizaBotaoMapa();
-        if (sel.value) abreMapa(); else fechaMapa();
+        // Trocar a sala com o mapa aberto: fecha para não mostrar
+        // a planta de uma sala e o nome de outra.
+        fechaMapa();
       });
       window.addEventListener('resize', encaixaMapa);
       document.getElementById('mapa-abrir')?.addEventListener('click', abreMapa);
@@ -493,11 +500,29 @@
         if (e.key === 'Escape' && popup && !popup.hidden) fechaMapa();
       });
     }
-    const salas = await SGA_API.list('salas', '&order=codigo&limit=500', 'id,codigo,descricao')
-      .catch(() => []);
-    if (salas && salas.length) fillSelect('mapa-sala', salas, 'Selecione a sala…');
+    // Com linha/coluna (sql/17) a planta respeita a grade da sala;
+    // se o banco ainda não tem as colunas, volta ao select antigo
+    // em vez de deixar o mapa sem salas.
+    const salas = await SGA_API.list('salas', '&order=codigo&limit=500',
+        'id,codigo,descricao,linha,coluna')
+      .catch(() => SGA_API.list('salas', '&order=codigo&limit=500',
+        'id,codigo,descricao').catch(() => []));
+    mapaSalas = salas || [];
+    if (mapaSalas.length) fillSelect('mapa-sala', mapaSalas, 'Selecione a sala…');
     atualizaBotaoMapa();
-    if (sel.value) abreMapa();
+  }
+
+  /**
+   * Grade (linhas x colunas) declarada na SALA — null quando a
+   * sala foi cadastrada sem os campos (neste caso o mapa estima
+   * a grade sozinho, como sempre).
+   */
+  function gradeDaSala(salaId) {
+    const s = mapaSalas.find(x => String(x.id) === String(salaId));
+    if (!s) return null;
+    const l = parseInt(s.linha, 10), c = parseInt(s.coluna, 10);
+    if (!(l > 0) || !(c > 0)) return null;
+    return { linhas: l, colunas: c };
   }
 
   /** Abre o pop-up em tela cheia e carrega o mapa da sala escolhida. */
@@ -575,20 +600,31 @@
     ));
 
     /**
-     * Escolhe colunas × linhas: prefere a combinação que COMPLETA
-     * a última linha (sem "buraco") e, entre as iguais, a que dá
+     * Escolhe colunas × linhas. Com grade gravada na sala
+     * (data-linhas/data-colunas) usa exatamente essa grade — cada
+     * estante fica na casa que o banco guardou; se o quadrado
+     * fica pequeno demais, cai no modo escala abaixo. Sem grade,
+     * a planta estima a melhor combinação: a que COMPLETA a
+     * última linha (sem "buraco") e, entre as iguais, a que dá
      * quadrados maiores — sempre que couber no tamanho mínimo.
      */
+    const gradeLin = Number(grid.dataset.linhas) || 0;
+    const gradeCol = Number(grid.dataset.colunas) || 0;
     let melhor = null;
-    for (let c = 1; c <= n; c++) {
-      const m = Math.ceil(n / c);
-      const lado = ladoDe(c, m);
-      if (lado < LADO_MIN) continue;
-      const resto = n % c;
-      const vazio = resto === 0 ? 0 : c - resto;
-      if (!melhor || vazio < melhor.vazio ||
-          (vazio === melhor.vazio && lado > melhor.lado)) {
-        melhor = { c, m, lado, vazio };
+    if (gradeLin > 0 && gradeCol > 0) {
+      const lado = ladoDe(gradeCol, gradeLin);
+      if (lado >= LADO_MIN) melhor = { c: gradeCol, m: gradeLin, lado };
+    } else {
+      for (let c = 1; c <= n; c++) {
+        const m = Math.ceil(n / c);
+        const lado = ladoDe(c, m);
+        if (lado < LADO_MIN) continue;
+        const resto = n % c;
+        const vazio = resto === 0 ? 0 : c - resto;
+        if (!melhor || vazio < melhor.vazio ||
+            (vazio === melhor.vazio && lado > melhor.lado)) {
+          melhor = { c, m, lado, vazio };
+        }
       }
     }
 
@@ -612,7 +648,8 @@
     }
 
     // Modo natural + scale: muita estante/caixa para a área
-    const k = Math.max(1, Math.min(n,
+    // (com grade gravada, as colunas continuam sendo as da sala)
+    const k = gradeCol > 0 ? gradeCol : Math.max(1, Math.min(n,
       Math.ceil(Math.sqrt(n * (dispW / Math.max(1, dispH))))));
     limpaEstilosMapa(grid);
     grid.style.width = 'max-content';
@@ -652,14 +689,19 @@
     limpaEstilosMapa(grid);
     try {
       const escopo = `&sala_id=eq.${encodeURIComponent(salaId)}`;
+      // Estantes com linha/coluna (sql/17); banco sem as colunas
+      // volta ao select antigo e o mapa estima a grade.
+      const estantesComGrade = () => SGA_API.listTudo('estantes',
+        `${escopo}&order=codigo,id`, 'id,codigo,descricao,linha,coluna');
       const [estantes, caixas, conta] = await Promise.all([
-        SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`, 'id,codigo,descricao'),
+        estantesComGrade().catch(() =>
+          SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`, 'id,codigo,descricao')),
         SGA_API.listTudo('caixas', `${escopo}&order=codigo,id`,
           'id,codigo,descricao,capacidade,estante_id'),
         contarDocumentosPorCaixa(),
       ]);
       if (minhaVez !== mapaSeq) return; // outra seleção já assumiu
-      desenharMapa(estantes || [], caixas || [], conta || {});
+      desenharMapa(estantes || [], caixas || [], conta || {}, gradeDaSala(salaId));
     } catch (err) {
       if (minhaVez !== mapaSeq) return;
       grid.innerHTML = `<p class="empty-state">Erro ao montar o mapa: ${U.esc(err.message)}</p>`;
@@ -676,14 +718,22 @@
    * cheia; descrição da caixa no tooltip do mouse). O resultado
    * é medido e reduzido (scale) por encaixaMapa() para caber
    * no pop-up, sem barra de rolagem.
+   *
+   * `grade` (linhas x colunas da sala, quando cadastrada) comanda
+   * a POSIÇÃO de cada estante na planta: a estante j nasce na
+   * linha/coluna gravadas e as posições sem estante ficam
+   * vazias, como na sala real. Sem `grade`, ou com estantes sem
+   * posição gravada, o mapa mantém a grade estimada de sempre.
    */
-  function desenharMapa(estantes, caixas, conta) {
+  function desenharMapa(estantes, caixas, conta, grade) {
     const grid = document.getElementById('mapa-estantes');
     const resumo = document.getElementById('mapa-resumo');
     if (!grid || !resumo) return;
 
     if (!estantes.length && !caixas.length) {
       grid.innerHTML = '<p class="empty-state">Nenhuma estante ou caixa cadastrada nesta sala</p>';
+      delete grid.dataset.linhas;
+      delete grid.dataset.colunas;
       resumo.hidden = true;
       encaixaMapa();
       return;
@@ -693,6 +743,10 @@
       String(a.codigo || '').localeCompare(String(b.codigo || ''), 'pt', { numeric: true }) ||
       String(a.id).localeCompare(String(b.id));
     const vazio = v => v === null || v === undefined || v === '';
+    const inteiroPos = v => {
+      const n = parseInt(v, 10);
+      return n > 0 ? n : null;
+    };
 
     const estIds = new Set(estantes.map(e => String(e.id)));
 
@@ -712,7 +766,11 @@
     caixasPorEst.forEach(l => l.sort(cmp));
     semEstante.sort(cmp);
 
-    let vazias = 0, parciais = 0, cheias = 0, somaPct = 0, comCap = 0;
+    // docsSala/capSala somam TODA a sala (incluindo as caixas sem
+    // estante): docsSala = documentos arquivados; capSala = pastas
+    // que as caixas da sala comportam (caixa.capacidade). O "% de
+    // ocupação" da barra sai da razão entre os dois.
+    let vazias = 0, parciais = 0, cheias = 0, docsSala = 0, capSala = 0;
 
     const quadradinho = c => {
       const docs = conta[c.id] || 0;
@@ -720,9 +778,9 @@
       let pct = null;
       if (cap) {
         pct = Math.min(100, Math.round((docs / cap) * 100));
-        somaPct += pct;
-        comCap++;
+        capSala += cap;
       }
+      docsSala += docs;
       const classe = (pct === 0 || (pct === null && docs === 0)) ? 'vazio'
         : (pct !== null && pct >= 100 ? 'cheia' : 'parcial');
       if (classe === 'vazio') vazias++;
@@ -739,9 +797,10 @@
      * para o quadrado da estante sair o mais "quadrado" possível.
      * `dimMax` guarda a maior dimensão (colunas/linhas) de toda
      * a sala: encaixaMapa() usa para dimensionar as caixas.
+     * `pos` = {linha, coluna} grava a casa do bloco na grade.
      */
     let dimMax = 1;
-    const blocoEstante = (rotulo, lista) => {
+    const blocoEstante = (rotulo, lista, pos) => {
       const n = lista.length;
       const cols = n ? Math.ceil(Math.sqrt(n)) : 1;
       const linhas = n ? Math.ceil(n / cols) : 1;
@@ -750,26 +809,103 @@
         ? `<div class="mapa-est-grade" style="grid-template-columns: repeat(${cols}, max-content)">` +
           lista.map(quadradinho).join('') + '</div>'
         : '<span class="mapa-est-vazia">sem caixas</span>';
-      return `<section class="mapa-est">` +
+      const casa = pos
+        ? ` style="grid-row:${pos.linha};grid-column:${pos.coluna}"` : '';
+      return `<section class="mapa-est"${casa}>` +
         `<span class="mapa-est-rotulo" title="${U.esc(rotulo)}">${U.esc(rotulo)}</span>` +
         `<div class="mapa-est-quadrado">${dentro}</div>` +
         '</section>';
     };
 
+    /**
+     * GRADE DA SALA: casa de cada estante. Primeiro as estantes
+     * com linha/coluna gravadas (na posição de origem, desde que
+     * a casa esteja livre); as demais — e o bloco "Sem estante" —
+     * ocupam as casas vazias em ordem de leitura. A grade só
+     * vale se couber todo mundo; se sobrar estante sem casa, o
+     * mapa volta a estimar a grade como antes.
+     */
+    const posicionaNaGrade = () => {
+      if (!grade) return null;
+      const casas = new Set();
+      let linhas = grade.linhas, colunas = grade.colunas;
+      // Uma posição fora da grade declarada (estante remanejada
+      // à mão) aumenta a grade em vez de sumir da planta.
+      estantes.forEach(e => {
+        const l = inteiroPos(e.linha), c = inteiroPos(e.coluna);
+        if (l && c) {
+          linhas = Math.max(linhas, l);
+          colunas = Math.max(colunas, c);
+        }
+      });
+
+      const casaDe = (l, c) => casas.add(`${l}|${c}`);
+      const buscaLivre = () => {
+        for (let l = 1; l <= linhas; l++) {
+          for (let c = 1; c <= colunas; c++) {
+            if (!casas.has(`${l}|${c}`)) return { linha: l, coluna: c };
+          }
+        }
+        return null;
+      };
+
+      const fixas = new Map();
+      // 1ª passada: posição gravada (duplicada cai para as livres)
+      estantes.forEach(e => {
+        const l = inteiroPos(e.linha), c = inteiroPos(e.coluna);
+        if (!l || !c || casas.has(`${l}|${c}`)) return;
+        casaDe(l, c);
+        fixas.set(String(e.id), { linha: l, coluna: c });
+      });
+      // 2ª passada: estantes sem posição -> 1ª casa livre
+      estantes.forEach(e => {
+        if (fixas.has(String(e.id))) return;
+        const p = buscaLivre();
+        if (!p) return;
+        casaDe(p.linha, p.coluna);
+        fixas.set(String(e.id), p);
+      });
+      // Bloco "Sem estante": só entra na grade se couber
+      const pSem = semEstante.length ? buscaLivre() : null;
+      if (pSem) casaDe(pSem.linha, pSem.coluna);
+
+      if (fixas.size !== estantes.length || (semEstante.length && !pSem)) {
+        return null;  // não coube tudo — mantém a grade estimada
+      }
+      return { linhas, colunas, fixas, semEstante: pSem };
+    };
+
+    const planta = posicionaNaGrade();
+    const posDe = e => (planta ? planta.fixas.get(String(e.id)) || null : null);
+
     const blocos = estantes.map(e =>
-      blocoEstante(e.descricao || e.codigo || '—', caixasPorEst.get(String(e.id)) || []));
-    if (semEstante.length) blocos.push(blocoEstante('Sem estante', semEstante));
+      blocoEstante(e.descricao || e.codigo || '—',
+        caixasPorEst.get(String(e.id)) || [], posDe(e)));
+    if (semEstante.length) {
+      blocos.push(blocoEstante('Sem estante', semEstante,
+        planta ? planta.semEstante : null));
+    }
 
     // Medidas que encaixaMapa() precisa para distribuir/aumentar
     grid.dataset.blocos = String(blocos.length);
     grid.dataset.dimmax = String(dimMax);
+    if (planta) {
+      grid.dataset.linhas = String(planta.linhas);
+      grid.dataset.colunas = String(planta.colunas);
+    } else {
+      delete grid.dataset.linhas;
+      delete grid.dataset.colunas;
+    }
     grid.innerHTML = blocos.join('');
 
-    const media = comCap ? Math.round(somaPct / comCap) : null;
+    // Barra de informação da sala: contagens + % de ocupação da
+    // SALA = documentos arquivados / capacidade de arquivamento
+    // (soma das pastas de todas as caixas da sala).
+    const ocupacao = capSala > 0 ? Math.round((docsSala / capSala) * 100) : null;
     resumo.textContent =
-      `${estantes.length} estante(s) · ${caixas.length} caixa(s) · ${vazias} vazia(s) · ` +
-      `${parciais} parcial(is) · ${cheias} cheia(s)` +
-      (media !== null ? ` · ocupação média ${media}%` : '');
+      `${estantes.length} estante · ${caixas.length} caixa · ${vazias} vazia · ` +
+      `${parciais} parcial · ${cheias} cheia` +
+      (ocupacao !== null ? ` · ${ocupacao}% de ocupação` : '');
     resumo.hidden = false;
     encaixaMapa();
   }
@@ -1199,9 +1335,12 @@
     // Mesmo conceito do cadastro manual: os códigos vêm todos da
     // sequência do banco (gerar_codigo com escopo por nível), só
     // que de uma vez só — a RPC cria a sala e a estrutura inteira
-    // em uma transação (sql/16_gerar_sala_arquivo_sem_corredores.sql).
+    // em uma transação (sql/17_gerar_sala_arquivo_linha_coluna.sql).
     // A sala é gerada SEM corredores: a quantidade de estantes é
     // livre e a estrutura é estante -> prateleira -> caixa.
+    // LINHA x COLUNA é a grade da sala: as estantes ocupam as
+    // posições em ordem de leitura (linha 1/coluna 1 em diante) e
+    // cada estante nasce com a sua linha/coluna gravada.
     const formGerar = document.getElementById('form-gerar-sala');
     const resumoGerar = document.getElementById('gerar-resumo');
 
@@ -1210,8 +1349,11 @@
       const est = n('gerar-estantes');
       const prat = n('gerar-prateleiras');
       const cx = n('gerar-caixas');
+      const lin = n('gerar-linha');
+      const col = n('gerar-coluna');
       return {
-        est, prat, cx,
+        est, prat, cx, lin, col,
+        grade: lin * col,
         estantes: est,
         prateleiras: est * prat,
         caixas: est * prat * cx,
@@ -1221,8 +1363,10 @@
     const mostraResumoGerar = prefixo => {
       const t = quantidadesGerar();
       resumoGerar.textContent =
-        `${prefixo}${t.estantes} estante(s) · ` +
-        `${t.prateleiras} prateleira(s) · ${t.caixas} caixa(s)`;
+        `${prefixo}${t.lin} linha(s) x ${t.col} coluna(s) · ` +
+        `${t.estantes} estante(s) · ` +
+        `${t.prateleiras} prateleira(s) · ${t.caixas} caixa(s)` +
+        (t.est > t.grade ? ' · grade insuficiente' : '');
     };
 
     formGerar.addEventListener('input', () => mostraResumoGerar('Vai gerar: '));
@@ -1233,8 +1377,15 @@
       const nome = document.getElementById('gerar-nome').value.trim();
       const t = quantidadesGerar();
       if (!nome) { U.toast('Informe o nome da sala.', 'warning'); return; }
-      if (t.est < 1 || t.prat < 1 || t.cx < 1) {
+      if (t.lin < 1 || t.col < 1 || t.est < 1 || t.prat < 1 || t.cx < 1) {
         U.toast('Informe as quantidades (mínimo 1 em cada campo).', 'warning'); return;
+      }
+      if (t.lin > 100 || t.col > 100) {
+        U.toast('Máximo de 100 linhas e 100 colunas.', 'warning'); return;
+      }
+      if (t.est > t.grade) {
+        U.toast(`A grade ${t.lin} linha(s) x ${t.col} coluna(s) comporta no máximo ` +
+                `${t.grade} estante(s). Informe ${t.grade} ou menos.`, 'warning'); return;
       }
       if (t.prat > 8) { U.toast('Máximo de 8 prateleiras por estante.', 'warning'); return; }
       if (t.cx > 4) { U.toast('Máximo de 4 caixas por prateleira.', 'warning'); return; }
@@ -1253,11 +1404,14 @@
           estantes: t.estantes,
           prateleiras: t.prat,
           caixas: t.cx,
+          linhas: t.lin,
+          colunas: t.col,
         });
         U.toast(`Sala ${r.sala_codigo} gerada com sucesso!`, 'success');
         formGerar.reset();
         resumoGerar.textContent =
-          `Sala ${r.sala_codigo} gerada: ${r.estantes} estante(s) · ` +
+          `Sala ${r.sala_codigo} gerada (${t.lin}x${t.col}): ` +
+          `${r.estantes} estante(s) · ` +
           `${r.prateleiras} prateleira(s) · ${r.caixas} caixa(s).`;
         // Mesmas atualizações do cadastro manual: próximo código
         // da sala, selects de localização e mapa do Painel.
