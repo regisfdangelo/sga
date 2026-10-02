@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261002.21';
+  const VERSAO_APP = '20261002.27';
 
   /* ============================================================
      UTILITÁRIOS
@@ -1326,9 +1326,7 @@
     // Próximo protocolo
     refreshProtocolo();
 
-    // Próximos códigos das localizações (SL-001, C-001, ...)
-    // Corredor, estante, prateleira e caixa dependem do que foi
-    // selecionado (ver refreshCodigos)
+    // Próximo código da sala na aba "Gerar Sala de Arquivo"
     refreshCodigos();
 
     // ---------- Gerar Sala de Arquivo ----------
@@ -1413,11 +1411,13 @@
           `Sala ${r.sala_codigo} gerada (${t.lin}x${t.col}): ` +
           `${r.estantes} estante(s) · ` +
           `${r.prateleiras} prateleira(s) · ${r.caixas} caixa(s).`;
-        // Mesmas atualizações do cadastro manual: próximo código
-        // da sala, selects de localização e mapa do Painel.
+        // Atualiza os selects de sala (Editar Arquivo/Pesquisa/
+        // Documento), a tabela de caixas e o mapa do Painel, e já
+        // deixa a sala recem-gerada aberta no editor.
         refreshCodigos();
-        loadLocalSelects();
+        await loadLocalSelects();
         loadCaixasTable();
+        sincronizaEditorSala(r.sala_id);
       } catch (err) {
         U.toast(err.message, 'error');
       } finally {
@@ -1497,186 +1497,11 @@
       }
     });
 
-    // ---------- Localizações ----------
-    bindSimpleForm('form-sala', 'salas', () => {
-      U.toast('Sala cadastrada!', 'success');
-      loadLocalSelects();
-      refreshCodigos();
-    }, 'salas');
-
-    document.getElementById('form-corredor').addEventListener('submit', async e => {
-      e.preventDefault();
-      const salaId = document.getElementById('corredor-sala').value;
-      const capacidade = parseInt(document.getElementById('corredor-capacidade').value, 10);
-      if (!salaId || !capacidade) { U.toast('Preencha sala e capacidade.', 'warning'); return; }
-      try {
-        const codigo = await SGA_API.gerarCodigo('corredores', salaId);
-        await SGA_API.insert('corredores', {
-          codigo, sala_id: salaId, capacidade,
-          descricao: document.getElementById('corredor-descricao').value.trim() || null,
-        });
-        U.toast('Corredor cadastrado!', 'success');
-        e.target.reset();
-        loadLocalSelects();
-        refreshCodigos();
-      } catch (err) { U.toast(err.message, 'error'); }
-    });
-
-    // Corredor: a sequência é POR SALA, então o próximo código só
-    // existe depois que a sala é escolhida (ou trocada).
-    document.getElementById('corredor-sala').addEventListener('change', refreshCodigoCorredor);
-
-    document.getElementById('form-estante').addEventListener('submit', async e => {
-      e.preventDefault();
-      const salaId = document.getElementById('estante-sala').value;
-      const corredorId = document.getElementById('estante-corredor').value;
-      const capacidade = parseInt(document.getElementById('estante-capacidade').value, 10);
-      // Corredor so e obrigatorio em salas que TEM corredores; nas
-      // geradas (sem corredor) a estante nasce com corredor_id NULL.
-      const corrObrig = salaTemCorredores(salaId);
-      if (!salaId || (corrObrig && !corredorId) || !capacidade) {
-        U.toast(corrObrig ? 'Preencha sala, corredor e capacidade.'
-                          : 'Preencha sala e capacidade.', 'warning');
-        return;
-      }
-      if (capacidade > 8) { U.toast('Capacidade máxima: 8 prateleiras por estante.', 'warning'); return; }
-      try {
-        const codigo = await SGA_API.gerarCodigo('estantes',
-          corredorId ? [salaId, corredorId] : salaId);
-        await SGA_API.insert('estantes', {
-          codigo, sala_id: salaId, corredor_id: corredorId || null, capacidade,
-          descricao: document.getElementById('estante-descricao').value.trim() || null,
-        });
-        U.toast('Estante cadastrada!', 'success');
-        e.target.reset();
-        loadLocalSelects();
-        refreshCodigos();
-      } catch (err) { U.toast(err.message, 'error'); }
-    });
-
-    // Estante: a sequência é POR SALA + CORREDOR (ou só POR SALA
-    // em salas geradas, sem corredor). A troca de sala limpa o
-    // corredor na cascata.
-    document.getElementById('estante-sala').addEventListener('change', () => {
-      fillCorredoresDaSala();
-      refreshCodigoEstante();
-    });
-    document.getElementById('estante-corredor').addEventListener('change', refreshCodigoEstante);
-
-    document.getElementById('form-prateleira').addEventListener('submit', async e => {
-      e.preventDefault();
-      const salaId = document.getElementById('prat-sala').value;
-      const corredorId = document.getElementById('prat-corredor').value;
-      const estanteId = document.getElementById('prat-estante').value;
-      const capacidade = parseInt(document.getElementById('prat-capacidade').value, 10);
-      // Corredor so obrigatorio em salas que TEM corredores (o
-      // codigo da prateleira depende apenas da estante)
-      const corrObrig = salaTemCorredores(salaId);
-      if (!salaId || (corrObrig && !corredorId) || !estanteId || !capacidade) {
-        U.toast(corrObrig ? 'Preencha sala, corredor, estante e capacidade.'
-                          : 'Preencha sala, estante e capacidade.', 'warning');
-        return;
-      }
-      if (capacidade > 4) { U.toast('Capacidade máxima: 4 caixas por prateleira (32 por estante).', 'warning'); return; }
-      try {
-        // Teto da estante: no máximo 8 prateleiras cadastradas
-        const prateleirasDaEstante = await SGA_API.list(
-          'prateleiras', `&estante_id=eq.${encodeURIComponent(estanteId)}`, 'id');
-        if ((prateleirasDaEstante || []).length >= 8) {
-          U.toast('Estante já possui o máximo de 8 prateleiras.', 'warning');
-          return;
-        }
-        const codigo = await SGA_API.gerarCodigo('prateleiras', estanteId);
-        await SGA_API.insert('prateleiras', {
-          codigo, estante_id: estanteId, capacidade,
-          descricao: document.getElementById('prat-descricao').value.trim() || null,
-        });
-        U.toast('Prateleira cadastrada!', 'success');
-        e.target.reset();
-        loadLocalSelects();
-        refreshCodigos();
-      } catch (err) { U.toast(err.message, 'error'); }
-    });
-
-    // Prateleira: cascata Sala -> Corredor -> Estante
-    document.getElementById('prat-sala').addEventListener('change', () => {
-      document.getElementById('prat-corredor').value = '';
-      fillCorredoresDo('prat-sala', 'prat-corredor');
-      fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
-      refreshCodigoPrateleira();
-    });
-    document.getElementById('prat-corredor').addEventListener('change', () => {
-      fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
-      refreshCodigoPrateleira();
-    });
-    // Prateleira: a sequencia e POR ESTANTE (a prateleira guarda
-    // so a estante). Sem a estante selecionada nao ha proximo
-    // codigo a exibir.
-    document.getElementById('prat-estante').addEventListener('change', refreshCodigoPrateleira);
-
-    document.getElementById('form-caixa').addEventListener('submit', async e => {
-      e.preventDefault();
-      const salaId = document.getElementById('caixa-sala').value;
-      const corredorId = document.getElementById('caixa-corredor').value;
-      const estanteId = document.getElementById('caixa-estante').value;
-      const prateleiraId = document.getElementById('caixa-prateleira').value;
-      const capacidade = parseInt(document.getElementById('caixa-capacidade').value, 10);
-      // Corredor so e obrigatorio em salas que TEM corredores; nas
-      // geradas (sem corredor) basta sala + estante + prateleira.
-      const corrObrig = salaTemCorredores(salaId);
-      if (!salaId || (corrObrig && !corredorId) || !estanteId || !prateleiraId || !capacidade) {
-        U.toast(corrObrig ? 'Preencha sala, corredor, estante, prateleira e capacidade.'
-                          : 'Preencha sala, estante, prateleira e capacidade.', 'warning');
-        return;
-      }
-      if (capacidade > 5) { U.toast('Capacidade máxima: 5 pastas por caixa.', 'warning'); return; }
-      try {
-        // Teto da prateleira: no máximo 4 caixas cadastradas (32 por estante)
-        const caixasDaPrateleira = await SGA_API.list(
-          'caixas', `&prateleira_id=eq.${encodeURIComponent(prateleiraId)}`, 'id');
-        if ((caixasDaPrateleira || []).length >= 4) {
-          U.toast('Prateleira já possui o máximo de 4 caixas.', 'warning');
-          return;
-        }
-        const codigo = await SGA_API.gerarCodigo('caixas', salaId);
-        await SGA_API.insert('caixas', {
-          codigo,
-          sala_id: salaId,
-          estante_id: estanteId,
-          prateleira_id: prateleiraId,
-          capacidade,
-          descricao: null,
-        });
-        U.toast('Caixa cadastrada!', 'success');
-        e.target.reset();
-        document.getElementById('caixa-capacidade').value = 5;
-        loadLocalSelects();
-        loadCaixasTable();
-        refreshCodigos();
-      } catch (err) { U.toast(err.message, 'error'); }
-    });
-
-    // Caixa: cascata Sala -> Corredor -> Estante -> Prateleira
-    document.getElementById('caixa-sala').addEventListener('change', () => {
-      document.getElementById('caixa-corredor').value = '';
-      fillCorredoresDo('caixa-sala', 'caixa-corredor');
-      fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
-      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
-      refreshCodigoCaixa();
-    });
-    document.getElementById('caixa-corredor').addEventListener('change', () => {
-      fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
-      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
-      refreshCodigoCaixa();
-    });
-    document.getElementById('caixa-estante').addEventListener('change', () => {
-      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
-      refreshCodigoCaixa();
-    });
-    // Caixa: a sequência é POR SALA (CX-000001, CX-000002 ...
-    // em toda a sala), então o próximo código já existe com a
-    // sala escolhida.
-    document.getElementById('caixa-prateleira').addEventListener('change', refreshCodigoCaixa);
+    // ---------- Editar Arquivo ----------
+    // Sala escolhida + arvore estante > prateleira > caixa
+    // (incluir, remover e transferir). A arvore e desenhada em
+    // renderEstrutura() e as acoes chegam por delegacao de evento.
+    initEditarArquivo();
 
     // Aba Pesquisa: navegador da sala selecionada (capacidade x ocupação)
     document.getElementById('pesq-sala').addEventListener('change', mostrarInfoSalaPesquisa);
@@ -1700,174 +1525,50 @@
     }
   }
 
-  function bindSimpleForm(formId, table, onSuccess, chaveCodigo) {
-    const form = document.getElementById(formId);
-    if (!form) return;
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const data = {};
-      form.querySelectorAll('input, select, textarea').forEach(el => {
-        if (!el.id) return;
-        const key = el.id.replace(/^(sala|estante|prat|caixa)-/, '');
-        data[key === 'codigo' ? 'codigo' : key === 'descricao' ? 'descricao' : key] =
-          el.value.trim() || null;
-      });
-      // Código vem da sequência do banco (campo somente leitura na tela)
-      if (!chaveCodigo && !data.codigo) { U.toast('Informe o código.', 'warning'); return; }
-      if ('capacidade' in data && !data.capacidade) { U.toast('Informe a capacidade.', 'warning'); return; }
-      if (chaveCodigo) {
-        try {
-          data.codigo = await SGA_API.gerarCodigo(chaveCodigo);
-        } catch (err) {
-          U.toast(err.message, 'error');
-          return;
-        }
-      }
-      try {
-        await SGA_API.insert(table, data);
-        form.reset();
-        onSuccess && onSuccess();
-      } catch (err) {
-        U.toast(err.message, 'error');
-      }
-    });
-  }
-
   /**
-   * Exibe nos campos de Código (somente leitura) o proximo codigo
-   * de cada sequencia global (SL-001).
-   * Apenas visualizacao: quem consome e' o submit (gerar_codigo).
-   * Corredor, estante, prateleira e caixa ficam de fora: a
-   * sequencia deles e' localizada (refreshCodigoCorredor /
-   * refreshCodigoEstante / refreshCodigoPrateleira /
-   * refreshCodigoCaixa).
+   * Exibe no campo de Código (somente leitura) da aba "Gerar Sala
+   * de Arquivo" o próximo código da sequência global de salas
+   * (SL-001). Apenas visualização: quem reserva é o submit
+   * (gerar_codigo).
+   *
+   * As sequências das localizações (corredor, estante, prateleira
+   * e caixa) NÃO aparecem mais em campo de código: são geradas
+   * dentro das telas de inclusão/transferência da aba Editar
+   * Arquivo, já com o escopo (sala/estante) resolvido.
    */
   async function refreshCodigos() {
-    const mapa = [
-      ['sala-codigo', 'salas'],
-      ['gerar-codigo', 'salas'],
-    ];
-    await Promise.all(mapa.map(async ([id, chave]) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const cod = await SGA_API.proximoCodigo(chave);
-      if (cod) el.value = cod;
-    }));
-    await refreshCodigoCorredor();
-    await refreshCodigoEstante();
-    await refreshCodigoPrateleira();
-    await refreshCodigoCaixa();
+    const el = document.getElementById('gerar-codigo');
+    if (!el) return;
+    const cod = await SGA_API.proximoCodigo('salas');
+    if (cod) el.value = cod;
   }
 
-  /**
-   * Corredor: sequencia POR SALA (Sala A: C-001, C-002 ... Sala B:
-   * C-001 ...). Sem sala escolhida nao ha proximo codigo a exibir,
-   * entao o campo fica vazio.
-   */
-  async function refreshCodigoCorredor() {
-    const el = document.getElementById('corredor-codigo');
-    const sel = document.getElementById('corredor-sala');
-    if (!el || !sel) return;
-    const salaId = sel.value;
-    if (!salaId) { el.value = ''; return; }
-    const cod = await SGA_API.proximoCodigo('corredores', salaId);
-    el.value = cod || '';
-  }
-
-  /**
-   * Estante: sequencia POR SALA + CORREDOR (Sala A / Corr 1:
-   * E-001, E-002 ... Sala A / Corr 2: E-001 ...). Em sala SEM
-   * corredor (gerada) o escopo e so-da-sala; em sala COM
-   * corredores, o corredor ainda e obrigatorio para o preview.
-   */
-  async function refreshCodigoEstante() {
-    const el = document.getElementById('estante-codigo');
-    const selSala = document.getElementById('estante-sala');
-    const selCorr = document.getElementById('estante-corredor');
-    if (!el || !selSala || !selCorr) return;
-    const salaId = selSala.value;
-    const corredorId = selCorr.value;
-    if (!salaId) { el.value = ''; return; }
-    if (!corredorId && salaTemCorredores(salaId)) { el.value = ''; return; }
-    const cod = await SGA_API.proximoCodigo('estantes',
-      corredorId ? [salaId, corredorId] : salaId);
-    el.value = cod || '';
-  }
-
-  /**
-   * Prateleira: sequencia POR ESTANTE (a prateleira guarda so a
-   * estante, e a estante ja pertence a aquela sala/corredor).
-   * Sem a estante selecionada nao ha proximo codigo a exibir.
-   * O corredor (quando existe na sala) tambem e exigido aqui.
-   */
-  async function refreshCodigoPrateleira() {
-    const el = document.getElementById('prat-codigo');
-    const selSala = document.getElementById('prat-sala');
-    const selCorr = document.getElementById('prat-corredor');
-    const selEst = document.getElementById('prat-estante');
-    if (!el || !selSala || !selCorr || !selEst) return;
-    if (!selSala.value || !selEst.value) { el.value = ''; return; }
-    if (!selCorr.value && salaTemCorredores(selSala.value)) { el.value = ''; return; }
-    const cod = await SGA_API.proximoCodigo('prateleiras', selEst.value);
-    el.value = cod || '';
-  }
-
-  /**
-   * Caixa: sequencia POR SALA (o codigo e unico em toda a sala,
-   * nao reinicia na prateleira). Com a sala escolhida ja ha
-   * proximo codigo a exibir.
-   */
-  async function refreshCodigoCaixa() {
-    const el = document.getElementById('caixa-codigo');
-    const selSala = document.getElementById('caixa-sala');
-    if (!el || !selSala) return;
-    if (!selSala.value) { el.value = ''; return; }
-    const cod = await SGA_API.proximoCodigo('caixas', selSala.value);
-    el.value = cod || '';
-  }
-
-  let corredoresCache = [];
   let estantesCache = [];
   let salasCache = [];
-  let prateleirasCache = [];
 
   async function loadLocalSelects() {
     try {
-      const [salas, estantes, prat, corr] = await Promise.all([
-        // capacidade so existe apos o 12_capacidade; sem ela, refaz sem a coluna
-        SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao,capacidade')
+      const [salas, estantes] = await Promise.all([
+        // capacidade/linha/coluna: 12_capacidade e 17_gerar_sala_arquivo.
+        // Banco sem as colunas volta para a seleção mínima.
+        SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao,capacidade,linha,coluna')
           .catch(() => SGA_API.listTudo('salas', '&order=codigo', 'id,codigo,descricao').catch(() => [])),
-        // corredor_id so existe apos o 10_corredores.sql; sem ele, refaz sem a coluna
-        SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id,corredor_id')
+        // corredor_id/linha/coluna: 10_corredores e 17_ Sem elas, o
+        // editor e a pesquisa seguem só com sala + código.
+        SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id,linha,coluna')
           .catch(() => SGA_API.listTudo('estantes', '&order=codigo', 'id,codigo,descricao,sala_id').catch(() => [])),
-        // estante_id so existe desde o cadastro por estante; sem ele,
-        // refaz sem a coluna e a cascata da caixa fica sem filtro
-        SGA_API.listTudo('prateleiras', '&order=codigo', 'id,codigo,descricao,estante_id')
-          .catch(() => SGA_API.listTudo('prateleiras', '&order=codigo', 'id,codigo,descricao').catch(() => [])),
-        // tabela nova: se ainda não existe no banco, segue com lista vazia
-        SGA_API.listTudo('corredores', '&order=codigo', 'id,codigo,descricao,sala_id').catch(() => []),
       ]);
 
       salasCache = salas || [];
-      corredoresCache = corr || [];
       estantesCache = estantes || [];
-      prateleirasCache = prat || [];
 
-      fillSelect('estante-sala', salas, 'Selecione a sala…');
-      fillSelect('caixa-sala', salas, 'Selecione a sala…');
-      fillSelect('corredor-sala', salas, 'Selecione a sala…');
-      fillSelect('prat-sala', salas, 'Selecione a sala…');
+      fillSelect('ed-sala', salas, 'Selecione a sala…');
       fillSelect('pesq-sala', salas, 'Selecione a sala…');
       fillSelect('doc-sala', salas, 'Selecione a sala…');
 
-      fillCorredoresDaSala();
-      fillCorredoresDo('prat-sala', 'prat-corredor');
-      fillEstantesDo('prat-sala', 'prat-corredor', 'prat-estante');
-      fillCorredoresDo('caixa-sala', 'caixa-corredor');
-      fillEstantesDo('caixa-sala', 'caixa-corredor', 'caixa-estante');
-      fillPrateleirasDaEstante('caixa-estante', 'caixa-prateleira');
       mostrarInfoSalaPesquisa();
       alocarCaixaPorSala();
+      sincronizaEditorSala();
     } catch (err) {
       // silencioso no carregamento inicial (tabelas podem ainda não existir)
       console.warn('loadLocalSelects:', err.message);
@@ -1902,62 +1603,806 @@
     box.hidden = false;
   }
 
+  /* ============================================================
+     SEÇÃO: EDITAR ARQUIVO
+     Escolhe uma sala, edita os dados dela e administra a árvore
+     estante > prateleira > caixa: incluir, remover e transferir.
+
+     Inclusões usam o mesmo caminho do antigo cadastro manual
+     (gerar_codigo + insert); remoções e transferências são
+     transações no banco, porque cascateiam e renumeram códigos
+     (sql/18_editar_sala_arquivo.sql).
+     ============================================================ */
+
+  const MAX_PRAT_ESTANTE = 8;   // prateleiras por estante
+  const MAX_CX_PRAT = 4;       // caixas por prateleira
+  const MAX_CAP_CAIXA = 5;     // pastas por caixa
+
+  const edArq = {
+    salaId: null,
+    sala: null,
+    estantes: [],
+    prateleiras: [],
+    caixas: [],
+    docs: {},        // { caixa_id: documentos }
+    busca: '',     // filtro do painel Pesquisa
+    seq: 0,          // descarta resposta de uma troca anterior
+  };
+
+  /** Ordem de leitura dos códigos (E-002 antes de E-010). */
+  const cmpCodigo = (a, b) =>
+    String(a.codigo || '').localeCompare(String(b.codigo || ''), 'pt', { numeric: true }) ||
+    String(a.id).localeCompare(String(b.id));
+
+  function initEditarArquivo() {
+    const sel = document.getElementById('ed-sala');
+    const form = document.getElementById('form-editar-sala');
+    const box = document.getElementById('ed-estrutura');
+    if (!sel || !form || !box) return;
+
+    sel.addEventListener('change', () => selecionarSalaEditor(sel.value));
+    form.addEventListener('submit', e => { e.preventDefault(); salvarSalaEditor(); });
+    form.addEventListener('input', validaGradeSala);
+    const btnEst = document.getElementById('btn-ed-incluir-estante');
+    if (btnEst) btnEst.addEventListener('click', incluirEstante);
+
+    // ---------- Pesquisa (filtra a árvore da sala escolhida) ----------
+    const formBusca = document.getElementById('form-ed-busca');
+    const busca = document.getElementById('ed-busca');
+    const btnLimpar = document.getElementById('btn-ed-limpar-busca');
+    if (formBusca && busca) {
+      formBusca.addEventListener('submit', e => { e.preventDefault(); aplicarBusca(); });
+      // Filtra enquanto digita: o botão Buscar cobre o Enter e fica
+      // como confirmação explícita para quem preferir não filtrar ao vivo.
+      busca.addEventListener('input', aplicarBusca);
+      if (btnLimpar) btnLimpar.addEventListener('click', () => {
+        busca.value = '';
+        aplicarBusca();
+      });
+    }
+
+    // Delegação: as linhas da árvore nascem a cada render
+    box.addEventListener('click', e => {
+      const btn = e.target.closest && e.target.closest('button[data-acao]');
+      if (!btn || btn.disabled) return;
+      const d = btn.dataset;
+      if (d.acao === 'add-prat') incluirPrateleira(d.est);
+      else if (d.acao === 'add-cx') incluirCaixa(d.prat);
+      else if (d.acao === 'mover-est') transferirEstante(d.est);
+      else if (d.acao === 'mover-cx') transferirCaixa(d.cx);
+      else if (d.acao === 'rm-est') removerEstante(d.est);
+      else if (d.acao === 'rm-prat') removerPrateleira(d.prat);
+      else if (d.acao === 'rm-cx') removerCaixa(d.cx);
+    });
+
+    sincronizaEditorSala();
+  }
+
   /**
-   * Preenche o select de corredores da estante apenas com os
-   * corredores da sala selecionada (reset na troca de sala).
+   * Reposiciona o editor depois que loadLocalSelects() recria o
+   * select: mantém a sala aberta quando ela ainda existe, limpa a
+   * tela quando foi removida e abre a sala recém-gerada.
    */
-  function fillCorredoresDaSala() {
-    const selCorr = document.getElementById('estante-corredor');
-    if (selCorr) selCorr.value = '';
-    fillCorredoresDo('estante-sala', 'estante-corredor');
+  function sincronizaEditorSala(salaPreferida) {
+    const sel = document.getElementById('ed-sala');
+    if (!sel) return;
+    if (salaPreferida && String(sel.value) !== String(salaPreferida)) {
+      selecionarSalaEditor(salaPreferida);
+      return;
+    }
+    if (!sel.value) {
+      edArq.salaId = null;
+      edArq.sala = null;
+      limparEditor();
+      return;
+    }
+    if (String(sel.value) !== String(edArq.salaId)) selecionarSalaEditor(sel.value);
   }
 
-  /** true se a sala tem corredores (corredoresCache ja carregado). */
-  function salaTemCorredores(salaId) {
-    if (!salaId) return false;
-    return corredoresCache.some(c => String(c.sala_id) === String(salaId));
+  function selecionarSalaEditor(salaId) {
+    const sel = document.getElementById('ed-sala');
+    if (sel && String(sel.value) !== String(salaId || '')) {
+      sel.value = salaId ? String(salaId) : '';
+    }
+    const sala = salasCache.find(s => String(s.id) === String(salaId || ''));
+    if (!salaId || !sala) { limparEditor(); return; }
+    edArq.salaId = sala.id;
+    edArq.sala = sala;
+    preencheCamposSala(sala);
+    carregarEstruturaSala();
   }
 
-  /** Select de corredores de um formulario: filtrado pela sala escolhida. */
-  function fillCorredoresDo(salaSelId, corrSelId) {
-    const selSala = document.getElementById(salaSelId);
-    const selCorr = document.getElementById(corrSelId);
-    if (!selSala || !selCorr) return;
-    const salaId = selSala.value;
-    const ops = corredoresCache.filter(c => String(c.sala_id) === String(salaId));
-    fillSelect(corrSelId, ops, 'Selecione o corredor…');
+  function preencheCamposSala(sala) {
+    const v = (id, valor) => {
+      const el = document.getElementById(id);
+      if (el) el.value = valor === null || valor === undefined ? '' : valor;
+    };
+    v('ed-sala-codigo', sala.codigo);
+    v('ed-sala-descricao', sala.descricao);
+    v('ed-sala-capacidade', sala.capacidade);
+    v('ed-sala-linha', sala.linha);
+    v('ed-sala-coluna', sala.coluna);
+    const salvar = document.getElementById('btn-salvar-sala');
+    if (salvar) salvar.disabled = false;
+    const btnEst = document.getElementById('btn-ed-incluir-estante');
+    if (btnEst) btnEst.disabled = false;
+    const btnBuscar = document.getElementById('btn-ed-buscar');
+    if (btnBuscar) btnBuscar.disabled = false;
+    const btnLimpar = document.getElementById('btn-ed-limpar-busca');
+    if (btnLimpar) btnLimpar.disabled = !edArq.busca;
+    validaGradeSala();
+  }
+
+  function limparEditor() {
+    ['ed-sala-codigo', 'ed-sala-descricao', 'ed-sala-capacidade', 'ed-sala-linha', 'ed-sala-coluna']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+    ['btn-salvar-sala', 'btn-ed-incluir-estante', 'btn-ed-buscar',
+      'btn-ed-limpar-busca'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
+    });
+    const aviso = document.getElementById('ed-sala-aviso');
+    if (aviso) aviso.hidden = true;
+    const resumo = document.getElementById('ed-busca-resumo');
+    if (resumo) { resumo.hidden = true; resumo.textContent = ''; }
+    const busca = document.getElementById('ed-busca');
+    if (busca) busca.value = '';
+    const box = document.getElementById('ed-estrutura');
+    if (box) box.innerHTML = '<p class="empty-state">Selecione uma sala para ver a estrutura.</p>';
+    edArq.busca = '';
+    edArq.estantes = [];
+    edArq.prateleiras = [];
+    edArq.caixas = [];
+    edArq.docs = {};
   }
 
   /**
-   * Select de estantes de um formulario: os da sala escolhida; com
-   * corredor selecionado, os daquele corredor (mais as ainda sem corredor).
+   * Aplica o filtro do painel Pesquisa. Sem termo, desenha a sala
+   * inteira; com termo, mantém a hierarquia visível: uma estante que
+   * bate aparece inteira, e uma prateleira/caixa que bate aparece
+   * dentro da sua estante/prateleira (com as irmãs também, para o
+   * usuário não perder o contexto de onde o item está).
    */
-  function fillEstantesDo(salaSelId, corrSelId, estSelId) {
-    const selSala = document.getElementById(salaSelId);
-    const selCorr = document.getElementById(corrSelId);
-    const selEst = document.getElementById(estSelId);
-    if (!selSala || !selCorr || !selEst) return;
-    const salaId = selSala.value;
-    const corredorId = selCorr.value;
-    const ops = estantesCache.filter(e =>
-      String(e.sala_id) === String(salaId) &&
-      (!corredorId || !e.corredor_id || String(e.corredor_id) === String(corredorId)));
-    fillSelect(estSelId, ops, 'Selecione a estante…');
+  function aplicarBusca() {
+    const busca = document.getElementById('ed-busca');
+    edArq.busca = busca ? busca.value : '';
+    if (!edArq.salaId) return;
+    renderEstrutura();
+  }
+
+  async function carregarEstruturaSala() {
+    const box = document.getElementById('ed-estrutura');
+    const salaId = edArq.salaId;
+    if (!box || !salaId) return;
+    const minhaVez = ++edArq.seq;
+    box.innerHTML = '<p class="empty-state">Carregando…</p>';
+    const escopo = `&sala_id=eq.${encodeURIComponent(salaId)}`;
+    try {
+      const [estantes, prateleiras, caixas, docs] = await Promise.all([
+        // linha/coluna só existem após o 17; banco sem elas não quebra o editor
+        SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`,
+          'id,codigo,descricao,capacidade,linha,coluna')
+          .catch(() => SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`,
+            'id,codigo,descricao,capacidade')),
+        SGA_API.listTudo('prateleiras', '&order=codigo,id',
+          'id,codigo,descricao,capacidade,estante_id'),
+        SGA_API.listTudo('caixas', `${escopo}&order=codigo,id`,
+          'id,codigo,descricao,capacidade,estante_id,prateleira_id'),
+        contarDocumentosPorCaixa(),
+      ]);
+      if (minhaVez !== edArq.seq) return; // outra seleção já assumiu
+      const idsEst = new Set((estantes || []).map(e => String(e.id)));
+      edArq.estantes = estantes || [];
+      edArq.prateleiras = (prateleiras || []).filter(p => idsEst.has(String(p.estante_id)));
+      edArq.caixas = caixas || [];
+      edArq.docs = docs || {};
+      renderEstrutura();
+      validaGradeSala();
+    } catch (err) {
+      if (minhaVez !== edArq.seq) return;
+      box.innerHTML = `<p class="empty-state">Erro ao carregar: ${U.esc(err.message)}</p>`;
+    }
+  }
+
+  /** Agrupa por atributo preservando a ordem de código. */
+  function agrupaPor(rows, campo) {
+    const mapa = new Map();
+    rows.forEach(r => {
+      const k = String(r[campo]);
+      if (!mapa.has(k)) mapa.set(k, []);
+      mapa.get(k).push(r);
+    });
+    mapa.forEach(lista => lista.sort(cmpCodigo));
+    return mapa;
+  }
+
+  function renderEstrutura() {
+    const box = document.getElementById('ed-estrutura');
+    if (!box) return;
+    const pratsPorEst = agrupaPor(edArq.prateleiras, 'estante_id');
+    const cxsPorPrat = agrupaPor(edArq.caixas, 'prateleira_id');
+    const cxsPorEst = agrupaPor(edArq.caixas, 'estante_id');
+
+    // ---------- Filtro do painel Pesquisa ----------
+    // Sem termo: desenha a sala inteira. Com termo, a hierarquia é
+    // preservada — se bateu na estante, vem a estante inteira; se
+    // bateu dentro dela, vem a prateleira/caixa que bateu E as
+    // irmãs, para o usuário não perder o contexto de onde está.
+    const termo = (edArq.busca || '').trim().toLowerCase();
+    const bate = (...vals) => !termo
+      || vals.some(v => v !== null && v !== undefined && v !== ''
+        && String(v).toLowerCase().includes(termo));
+    const bateCx = c => bate(c.codigo, c.descricao, c.capacidade);
+    const batePrat = p => bate(p.codigo, p.descricao, p.capacidade)
+      || (cxsPorPrat.get(String(p.id)) || []).some(bateCx);
+
+    const todas = [...edArq.estantes].sort(cmpCodigo);
+    const estantes = termo
+      ? todas.filter(e => bate(e.codigo, e.descricao, e.capacidade)
+        || (pratsPorEst.get(String(e.id)) || []).some(batePrat)
+        || (cxsPorEst.get(String(e.id)) || []).some(bateCx))
+      : todas;
+
+    const nPratTotal = edArq.prateleiras.length;
+    const nCxTotal = edArq.caixas.length;
+    let nPratVista = 0, nCxVista = 0;
+    const limpar = document.getElementById('btn-ed-limpar-busca');
+    if (limpar) limpar.disabled = !termo;
+    // O resumo é escrito DEPOIS do desenho: as contagens crescem
+    // enquanto as linhas são montadas.
+    const escreveResumo = () => {
+      const resumo = document.getElementById('ed-busca-resumo');
+      if (!resumo) return;
+      resumo.textContent = termo
+        ? `Filtro “${edArq.busca.trim()}”: ${estantes.length}/${todas.length} estante(s), `
+          + `${nPratVista}/${nPratTotal} prateleira(s), ${nCxVista}/${nCxTotal} caixa(s)`
+        : '';
+      resumo.hidden = !termo;
+    };
+
+    if (!estantes.length) {
+      box.innerHTML = termo
+        ? `<p class="ed-vazio-sala">Nada corresponde ao filtro <strong>${U.esc(edArq.busca.trim())}</strong>
+             nesta sala. Use <strong>Limpar</strong> para ver a estrutura inteira.</p>`
+        : '<p class="ed-vazio-sala">Nenhuma estante nesta sala. '
+          + 'Use o botão <strong>+ Incluir estante</strong>.</p>';
+      escreveResumo();
+      return;
+    }
+
+    box.innerHTML = estantes.map(e => {
+      // Com filtro, uma estante que bateu sozinha mostra tudo; se a
+      // estante apareceu por causa de uma prateleira/caixa que bateu,
+      // só o que bateu é desenhado (mais as irmãs, para não perder o
+      // contexto de onde o item está).
+      const estBateSozinha = !termo || bate(e.codigo, e.descricao, e.capacidade);
+      const todasPrats = pratsPorEst.get(String(e.id)) || [];
+      const prats = estBateSozinha
+        ? todasPrats
+        : todasPrats.filter(batePrat);
+      const totalCx = (cxsPorEst.get(String(e.id)) || []).length;
+      const pos = (e.linha > 0 && e.coluna > 0) ? `<span class="badge">L${e.linha} C${e.coluna}</span>` : '';
+      // O limite é sempre o da estante INTEIRA, não o do trecho filtrado:
+      // filtrar não libera espaço para incluir mais.
+      const cabePrat = todasPrats.length < MAX_PRAT_ESTANTE ? '' : ' disabled';
+      nPratVista += prats.length;
+
+      const htmlPrats = prats.map(p => {
+        const todasCxs = cxsPorPrat.get(String(p.id)) || [];
+        const cxs = estBateSozinha || bate(p.codigo, p.descricao, p.capacidade)
+          ? todasCxs : todasCxs.filter(bateCx);
+        const cabeCx = todasCxs.length < MAX_CX_PRAT ? '' : ' disabled';
+        nCxVista += cxs.length;
+        const htmlCx = cxs.map(c => {
+          const n = edArq.docs[c.id] || 0;
+          const cap = c.capacidade || MAX_CAP_CAIXA;
+          return `<span class="ed-caixa" title="${U.esc(c.descricao || c.codigo)}">`
+            + `<span class="ed-caixa-cod">${U.esc(c.codigo)}</span>`
+            + `<span class="ed-caixa-cap">${n}/${cap}</span>`
+            + `<span class="ed-acoes">`
+            + `<button class="btn btn-ghost btn-icone" data-acao="mover-cx" data-cx="${U.esc(c.id)}"`
+            + ` title="Transferir caixa">⇄</button>`
+            + `<button class="btn btn-ghost btn-icone" data-acao="rm-cx" data-cx="${U.esc(c.id)}"`
+            + ` title="Remover caixa">✕</button>`
+            + `</span></span>`;
+        }).join('');
+
+        return `<div class="ed-prateleira">`
+          + `<div class="ed-prateleira-topo">`
+          + `<span class="ed-nome">${U.esc(p.codigo)}</span>`
+          + (p.descricao ? `<span class="ed-meta">${U.esc(p.descricao)}</span>` : '')
+          + `<span class="ed-meta">${cxs.length}/${p.capacidade || MAX_CX_PRAT} caixas</span>`
+          + `<span class="ed-acoes">`
+          + `<button class="btn btn-ghost btn-icone" data-acao="add-cx" data-prat="${U.esc(p.id)}"`
+          + `${cabeCx} title="Incluir caixa">+ Caixa</button>`
+          + `<button class="btn btn-ghost btn-icone" data-acao="rm-prat" data-prat="${U.esc(p.id)}"`
+          + ` title="Remover prateleira">✕</button>`
+          + `</span></div>`
+          + `<div class="ed-caixas">${htmlCx || '<span class="ed-meta">Sem caixas.</span>'}</div>`
+          + `</div>`;
+      }).join('');
+
+      return `<section class="ed-estante">`
+        + `<header class="ed-estante-topo">`
+        + `<span class="ed-nome">${U.esc(e.codigo)}</span>`
+        + (e.descricao ? `<span class="ed-meta">${U.esc(e.descricao)}</span>` : '')
+        + pos
+        + `<span class="ed-meta">${todasPrats.length}/${e.capacidade || MAX_PRAT_ESTANTE} prateleiras · ${totalCx} caixa(s)</span>`
+        + `<span class="ed-acoes">`
+        + `<button class="btn btn-ghost btn-icone" data-acao="add-prat" data-est="${U.esc(e.id)}"`
+        + `${cabePrat} title="Incluir prateleira">+ Prateleira</button>`
+        + `<button class="btn btn-ghost btn-icone" data-acao="mover-est" data-est="${U.esc(e.id)}"`
+        + ` title="Transferir estante">⇄</button>`
+        + `<button class="btn btn-ghost btn-icone" data-acao="rm-est" data-est="${U.esc(e.id)}"`
+        + ` title="Remover estante">✕</button>`
+        + `</span></header>`
+        + `<div class="ed-prateleiras">${htmlPrats || '<span class="ed-meta">Sem prateleiras.</span>'}</div>`
+        + `</section>`;
+    }).join('');
+
+    escreveResumo();
   }
 
   /**
-   * Select de prateleiras de um formulario: as da estante escolhida
-   * (mantem a cascata Sala -> Corredor -> Estante -> Prateleira).
-   * Sem estante (ou sem a coluna estante_id), mostra todas.
+   * A grade (linha x coluna) é física: as estantes já posicionadas
+   * não podem ficar de fora dela. A capacidade é apenas meta, então
+   * ficar abaixo da quantidade de estantes é aviso, não bloqueio.
    */
-  function fillPrateleirasDaEstante(estSelId, pratSelId) {
-    const selEst = document.getElementById(estSelId);
-    const selPrat = document.getElementById(pratSelId);
-    if (!selEst || !selPrat) return;
-    const estanteId = selEst.value;
-    const ops = prateleirasCache.filter(p =>
-      p.estante_id === undefined || String(p.estante_id) === String(estanteId));
-    fillSelect(pratSelId, ops, 'Selecione a prateleira…');
+  function validaGradeSala() {
+    const aviso = document.getElementById('ed-sala-aviso');
+    if (!aviso) return true;
+    const linha = parseInt(document.getElementById('ed-sala-linha').value, 10) || 0;
+    const coluna = parseInt(document.getElementById('ed-sala-coluna').value, 10) || 0;
+    const cap = parseInt(document.getElementById('ed-sala-capacidade').value, 10) || 0;
+    const msgs = [];
+    let ok = true;
+
+    if (linha > 0 && coluna > 0) {
+      const fora = edArq.estantes.filter(e =>
+        e.linha > 0 && e.coluna > 0 && (e.linha > linha || e.coluna > coluna));
+      if (fora.length) {
+        ok = false;
+        msgs.push(`${fora.length} estante(s) ficariam fora da grade ${linha}x${coluna}.`);
+      }
+    }
+    if (cap > 0 && edArq.estantes.length > cap) {
+      msgs.push(`A capacidade (${cap}) é menor que as ${edArq.estantes.length} estante(s) existentes.`);
+    }
+
+    aviso.textContent = msgs.join(' ');
+    aviso.classList.toggle('erro', !ok);
+    aviso.hidden = !msgs.length;
+    return ok;
+  }
+
+  async function salvarSalaEditor() {
+    if (!edArq.sala) return;
+    const form = document.getElementById('form-editar-sala');
+    U.clearErrors(form);
+
+    const descricao = document.getElementById('ed-sala-descricao').value.trim();
+    const capacidade = parseInt(document.getElementById('ed-sala-capacidade').value, 10);
+    const linha = parseInt(document.getElementById('ed-sala-linha').value, 10);
+    const coluna = parseInt(document.getElementById('ed-sala-coluna').value, 10);
+
+    let ok = true;
+    if (!capacidade) { U.setError('ed-sala-capacidade', 'Informe a capacidade.'); ok = false; }
+    if (!(linha >= 1)) { U.setError('ed-sala-linha', 'Mínimo 1.'); ok = false; }
+    if (!(coluna >= 1)) { U.setError('ed-sala-coluna', 'Mínimo 1.'); ok = false; }
+    if (linha > 100) { U.setError('ed-sala-linha', 'Máximo 100.'); ok = false; }
+    if (coluna > 100) { U.setError('ed-sala-coluna', 'Máximo 100.'); ok = false; }
+    if (!ok) return;
+    if (!validaGradeSala()) {
+      U.toast('A grade nova não comporta as estantes existentes. Ajuste a grade ou remova as estantes.', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('btn-salvar-sala');
+    U.loading(btn, true);
+    try {
+      await SGA_API.update('salas', edArq.sala.id, {
+        descricao: descricao || null,
+        capacidade,
+        linha,
+        coluna,
+      });
+      U.toast(`Sala ${edArq.sala.codigo} atualizada!`, 'success');
+      loadLocalSelects();
+      selecionarSalaEditor(edArq.sala.id);
+    } catch (err) {
+      U.toast(err.message, 'error');
+    } finally {
+      U.loading(btn, false);
+    }
+  }
+
+  /**
+   * Primeira casa livre da grade da sala (ordem de leitura). Sala
+   * cadastrada antes do sql/17 não tem grade: devolve {} e a estante
+   * entra sem posição (a planta do mapa estima a grade).
+   */
+  function primeiraCelulaLivre() {
+    const sala = edArq.sala || {};
+    const linhas = parseInt(sala.linha, 10) || 0;
+    const colunas = parseInt(sala.coluna, 10) || 0;
+    if (!(linhas > 0) || !(colunas > 0)) return {};
+    const ocupadas = new Set(
+      edArq.estantes.filter(e => e.linha > 0 && e.coluna > 0).map(e => `${e.linha}x${e.coluna}`));
+    for (let l = 1; l <= linhas; l++) {
+      for (let c = 1; c <= colunas; c++) {
+        if (!ocupadas.has(`${l}x${c}`)) return { linha: l, coluna: c };
+      }
+    }
+    return null;
+  }
+
+  /** Botões padrão do modal de inclusão/transferência. */
+  function botoesModal(acao) {
+    return '<button class="btn btn-ghost" id="edf-cancelar">Cancelar</button>'
+      + `<button class="btn btn-primary" id="edf-confirmar">${U.esc(acao)}</button>`;
+  }
+
+  function ligaBotoesModal(acao, aoConfirmar) {
+    const cancelar = document.getElementById('edf-cancelar');
+    const confirmar = document.getElementById('edf-confirmar');
+    if (cancelar) cancelar.addEventListener('click', () => Modal.close());
+    if (confirmar) confirmar.addEventListener('click', async e => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      U.loading(btn, true);
+      try {
+        await aoConfirmar();
+      } catch (err) {
+        U.toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        U.loading(btn, false);
+      }
+    });
+  }
+
+  /** <option>s de um destino, com código + descrição. */
+  function opcoesDestino(rows, placeholder) {
+    return `<option value="">${U.esc(placeholder)}</option>`
+      + (rows || []).map(r => `<option value="${U.esc(r.id)}">${U.esc(r.codigo)}`
+        + (r.descricao ? ' — ' + U.esc(r.descricao) : '') + '</option>').join('');
+  }
+
+  async function incluirEstante() {
+    if (!edArq.sala) return;
+    const celula = primeiraCelulaLivre();
+    if (!celula) {
+      const l = edArq.sala.linha || '?', c = edArq.sala.coluna || '?';
+      U.toast(`A grade da sala (${l}x${c}) está cheia. `
+        + 'Aumente a grade da sala ou transfira alguma estante para outra sala.', 'warning');
+      return;
+    }
+
+    const posTexto = celula.linha
+      ? `Linha ${celula.linha}, coluna ${celula.coluna}`
+      : 'Sala sem grade — a estante entra sem posição';
+
+    Modal.open('Incluir estante', `
+      <form class="form-stack" onsubmit="return false">
+        <div class="form-group">
+          <label for="edf-est-pos">Posição na grade</label>
+          <input type="text" id="edf-est-pos" value="${posTexto}" readonly>
+        </div>
+        <div class="form-group">
+          <label for="edf-est-descricao">Descrição</label>
+          <input type="text" id="edf-est-descricao" maxlength="120" placeholder="Ex.: Estante do fundo">
+        </div>
+        <div class="form-group">
+          <label for="edf-est-capacidade">Capacidade (prateleiras) — máx. ${MAX_PRAT_ESTANTE}</label>
+          <input type="number" id="edf-est-capacidade" min="1" max="${MAX_PRAT_ESTANTE}" value="${MAX_PRAT_ESTANTE}">
+        </div>
+      </form>`, botoesModal('Incluir'));
+
+    ligaBotoesModal('Incluir', async () => {
+      const capacidade = parseInt(document.getElementById('edf-est-capacidade').value, 10);
+      if (!(capacidade >= 1 && capacidade <= MAX_PRAT_ESTANTE)) {
+        U.toast(`Capacidade entre 1 e ${MAX_PRAT_ESTANTE} prateleiras.`, 'warning');
+        return;
+      }
+      const codigo = await SGA_API.gerarCodigo('estantes', edArq.sala.id);
+      await SGA_API.insert('estantes', {
+        codigo,
+        sala_id: edArq.sala.id,
+        capacidade,
+        linha: celula.linha || null,
+        coluna: celula.coluna || null,
+        descricao: document.getElementById('edf-est-descricao').value.trim() || null,
+      });
+      Modal.close();
+      U.toast(`Estante ${codigo} incluída!`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    });
+  }
+
+  async function incluirPrateleira(estanteId) {
+    if (!edArq.sala) return;
+    const est = edArq.estantes.find(e => String(e.id) === String(estanteId));
+    if (!est) return;
+    const existentes = edArq.prateleiras.filter(p => String(p.estante_id) === String(est.id)).length;
+    if (existentes >= MAX_PRAT_ESTANTE) {
+      U.toast(`A estante ${est.codigo} já tem ${MAX_PRAT_ESTANTE} prateleiras (máximo).`, 'warning');
+      return;
+    }
+
+    Modal.open(`Incluir prateleira em ${est.codigo}`, `
+      <form class="form-stack" onsubmit="return false">
+        <div class="form-group">
+          <label for="edf-prat-descricao">Descrição</label>
+          <input type="text" id="edf-prat-descricao" maxlength="120" placeholder="Ex.: Prateleira superior">
+        </div>
+        <div class="form-group">
+          <label for="edf-prat-capacidade">Capacidade (caixas) — máx. ${MAX_CX_PRAT}</label>
+          <input type="number" id="edf-prat-capacidade" min="1" max="${MAX_CX_PRAT}" value="${MAX_CX_PRAT}">
+        </div>
+      </form>`, botoesModal('Incluir'));
+
+    ligaBotoesModal('Incluir', async () => {
+      const capacidade = parseInt(document.getElementById('edf-prat-capacidade').value, 10);
+      if (!(capacidade >= 1 && capacidade <= MAX_CX_PRAT)) {
+        U.toast(`Capacidade entre 1 e ${MAX_CX_PRAT} caixas.`, 'warning');
+        return;
+      }
+      const codigo = await SGA_API.gerarCodigo('prateleiras', est.id);
+      await SGA_API.insert('prateleiras', {
+        codigo,
+        estante_id: est.id,
+        capacidade,
+        descricao: document.getElementById('edf-prat-descricao').value.trim() || null,
+      });
+      Modal.close();
+      U.toast(`Prateleira ${codigo} incluída!`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    });
+  }
+
+  async function incluirCaixa(prateleiraId) {
+    if (!edArq.sala) return;
+    const prat = edArq.prateleiras.find(p => String(p.id) === String(prateleiraId));
+    if (!prat) return;
+    const existentes = edArq.caixas.filter(c => String(c.prateleira_id) === String(prat.id)).length;
+    if (existentes >= MAX_CX_PRAT) {
+      U.toast(`A prateleira ${prat.codigo} já tem ${MAX_CX_PRAT} caixas (máximo).`, 'warning');
+      return;
+    }
+
+    // Só EXIBE o próximo código da sequência da sala: quem reserva
+    // é o gerar_codigo do submit (nada é consumido ao abrir o modal).
+    let proximo = '';
+    try {
+      proximo = (await SGA_API.proximoCodigo('caixas', edArq.sala.id)) || '';
+    } catch { /* banco sem a RPC: campo fica vazio */ }
+
+    Modal.open(`Incluir caixa em ${prat.codigo}`, `
+      <form class="form-stack" onsubmit="return false">
+        <div class="form-group">
+          <label for="edf-cx-codigo">Código</label>
+          <input type="text" id="edf-cx-codigo" value="${U.esc(proximo)}" readonly
+            placeholder="Gerado ao incluir">
+        </div>
+        <div class="form-group">
+          <label for="edf-cx-descricao">Descrição</label>
+          <input type="text" id="edf-cx-descricao" maxlength="120" placeholder="Opcional">
+        </div>
+        <div class="form-group">
+          <label for="edf-cx-capacidade">Capacidade (pastas) — máx. ${MAX_CAP_CAIXA}</label>
+          <input type="number" id="edf-cx-capacidade" min="1" max="${MAX_CAP_CAIXA}" value="${MAX_CAP_CAIXA}">
+        </div>
+      </form>`, botoesModal('Incluir'));
+
+    ligaBotoesModal('Incluir', async () => {
+      const capacidade = parseInt(document.getElementById('edf-cx-capacidade').value, 10);
+      if (!(capacidade >= 1 && capacidade <= MAX_CAP_CAIXA)) {
+        U.toast(`Capacidade entre 1 e ${MAX_CAP_CAIXA} pastas.`, 'warning');
+        return;
+      }
+      const codigo = await SGA_API.gerarCodigo('caixas', edArq.sala.id);
+      await SGA_API.insert('caixas', {
+        codigo,
+        sala_id: edArq.sala.id,
+        estante_id: prat.estante_id,
+        prateleira_id: prat.id,
+        capacidade,
+        descricao: document.getElementById('edf-cx-descricao').value.trim() || null,
+      });
+      Modal.close();
+      U.toast(`Caixa ${codigo} incluída!`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    });
+  }
+
+  async function transferirEstante(estanteId) {
+    if (!edArq.sala) return;
+    const est = edArq.estantes.find(e => String(e.id) === String(estanteId));
+    if (!est) return;
+    const destino = salasCache.filter(s => String(s.id) !== String(edArq.sala.id));
+    if (!destino.length) {
+      U.toast('Não há outra sala cadastrada para receber a estante.', 'warning');
+      return;
+    }
+    const prats = edArq.prateleiras.filter(p => String(p.estante_id) === String(est.id)).length;
+    const cxs = edArq.caixas.filter(c => String(c.estante_id) === String(est.id)).length;
+
+    Modal.open(`Transferir estante ${est.codigo}`, `
+      <form class="form-stack" onsubmit="return false">
+        <p class="ed-aviso">Move a estante com ${prats} prateleira(s) e ${cxs} caixa(s).
+          A estante e as caixas recebem códigos novos na sala de destino
+          (o código é único dentro da sala).</p>
+        <div class="form-group">
+          <label for="edf-dest-sala">Sala de destino *</label>
+          <select id="edf-dest-sala">${opcoesDestino(destino, 'Selecione a sala…')}</select>
+        </div>
+      </form>`, botoesModal('Transferir'));
+
+    ligaBotoesModal('Transferir', async () => {
+      const salaId = document.getElementById('edf-dest-sala').value;
+      if (!salaId) { U.toast('Selecione a sala de destino.', 'warning'); return; }
+      const r = await SGA_API.transferirEstante(est.id, salaId);
+      Modal.close();
+      U.toast(`Estante ${r.codigo_anterior} → ${r.codigo_novo} `
+        + `(${r.caixas} caixa(s) renumeradas).`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    });
+  }
+
+  async function transferirCaixa(caixaId) {
+    if (!edArq.sala) return;
+    const cx = edArq.caixas.find(c => String(c.id) === String(caixaId));
+    if (!cx) return;
+    const destino = salasCache.filter(s => String(s.id) !== String(edArq.sala.id));
+    if (!destino.length) {
+      U.toast('Não há outra sala cadastrada para receber a caixa.', 'warning');
+      return;
+    }
+    const docs = edArq.docs[cx.id] || 0;
+
+    Modal.open(`Transferir caixa ${cx.codigo}`, `
+      <form class="form-stack" onsubmit="return false">
+        <p class="ed-aviso">Move a caixa com ${docs} documento(s) guardado(s).
+          A caixa recebe código novo na sala de destino.</p>
+        <div class="form-group">
+          <label for="edf-cx-sala">Sala de destino *</label>
+          <select id="edf-cx-sala">${opcoesDestino(destino, 'Selecione a sala…')}</select>
+        </div>
+        <div class="form-group">
+          <label for="edf-cx-estante">Estante de destino *</label>
+          <select id="edf-cx-estante" disabled><option value="">Selecione a sala…</option></select>
+        </div>
+        <div class="form-group">
+          <label for="edf-cx-prateleira">Prateleira de destino *</label>
+          <select id="edf-cx-prateleira" disabled><option value="">Selecione a estante…</option></select>
+        </div>
+      </form>`, botoesModal('Transferir'));
+
+    const selSala = document.getElementById('edf-cx-sala');
+    const selEst = document.getElementById('edf-cx-estante');
+    const selPrat = document.getElementById('edf-cx-prateleira');
+
+    selSala.addEventListener('change', async () => {
+      const salaId = selSala.value;
+      selEst.innerHTML = '<option value="">Selecione a estante…</option>';
+      selPrat.innerHTML = '<option value="">Selecione a prateleira…</option>';
+      selPrat.disabled = true;
+      if (!salaId) { selEst.disabled = true; return; }
+      selEst.disabled = false;
+      selEst.innerHTML = '<option value="">Carregando…</option>';
+      try {
+        const ests = await SGA_API.listTudo('estantes',
+          `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo`, 'id,codigo');
+        if (selSala.value !== salaId) return;
+        selEst.innerHTML = opcoesDestino(ests, 'Selecione a estante…');
+      } catch {
+        selEst.innerHTML = '<option value="">Erro ao carregar estantes</option>';
+      }
+    });
+
+    selEst.addEventListener('change', async () => {
+      const estId = selEst.value;
+      selPrat.innerHTML = '<option value="">Selecione a prateleira…</option>';
+      if (!estId) { selPrat.disabled = true; return; }
+      selPrat.disabled = false;
+      selPrat.innerHTML = '<option value="">Carregando…</option>';
+      try {
+        const prats = await SGA_API.listTudo('prateleiras',
+          `&estante_id=eq.${encodeURIComponent(estId)}&order=codigo`, 'id,codigo');
+        if (selEst.value !== estId) return;
+        selPrat.innerHTML = opcoesDestino(prats, 'Selecione a prateleira…');
+      } catch {
+        selPrat.innerHTML = '<option value="">Erro ao carregar prateleiras</option>';
+      }
+    });
+
+    ligaBotoesModal('Transferir', async () => {
+      const salaId = selSala.value;
+      const estId = selEst.value;
+      const pratId = selPrat.value;
+      if (!salaId) { U.toast('Selecione a sala de destino.', 'warning'); return; }
+      if (!estId) { U.toast('Selecione a estante de destino.', 'warning'); return; }
+      if (!pratId) { U.toast('Selecione a prateleira de destino.', 'warning'); return; }
+      const r = await SGA_API.transferirCaixa(cx.id, salaId, estId, pratId);
+      Modal.close();
+      U.toast(`Caixa ${r.codigo_anterior} → ${r.codigo_novo} `
+        + `(${r.documentos} documento(s) junto).`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    });
+  }
+
+  /** Documentos guardados nas caixas de um nível da árvore. */
+  function docsDo(caixas) {
+    return (caixas || []).reduce((soma, c) => soma + (edArq.docs[c.id] || 0), 0);
+  }
+
+  async function removerEstante(estanteId) {
+    const est = edArq.estantes.find(e => String(e.id) === String(estanteId));
+    if (!est) return;
+    const prats = edArq.prateleiras.filter(p => String(p.estante_id) === String(est.id));
+    const cxs = edArq.caixas.filter(c => String(c.estante_id) === String(est.id));
+    const docs = docsDo(cxs);
+    if (docs > 0) {
+      U.toast(`A estante ${est.codigo} tem ${docs} documento(s) arquivado(s). `
+        + 'Transfira as caixas antes de remover a estante.', 'error');
+      return;
+    }
+    if (!confirm(`Remover a estante ${est.codigo} e, em cascata, `
+      + `${prats.length} prateleira(s) e ${cxs.length} caixa(s)?`)) return;
+    try {
+      const r = await SGA_API.removerEstante(est.id);
+      U.toast(`Estante ${r.codigo} removida (${r.caixas} caixa(s) em cascata).`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    } catch (err) { U.toast(err.message, 'error'); }
+  }
+
+  async function removerPrateleira(prateleiraId) {
+    const prat = edArq.prateleiras.find(p => String(p.id) === String(prateleiraId));
+    if (!prat) return;
+    const cxs = edArq.caixas.filter(c => String(c.prateleira_id) === String(prat.id));
+    const docs = docsDo(cxs);
+    if (docs > 0) {
+      U.toast(`A prateleira ${prat.codigo} tem ${docs} documento(s) arquivado(s). `
+        + 'Transfira as caixas antes de remover a prateleira.', 'error');
+      return;
+    }
+    if (!confirm(`Remover a prateleira ${prat.codigo} e, em cascata, `
+      + `${cxs.length} caixa(s)?`)) return;
+    try {
+      const r = await SGA_API.removerPrateleira(prat.id);
+      U.toast(`Prateleira ${r.codigo} removida (${r.caixas} caixa(s) em cascata).`, 'success');
+      loadLocalSelects();
+      await carregarEstruturaSala();
+    } catch (err) { U.toast(err.message, 'error'); }
+  }
+
+  async function removerCaixa(caixaId) {
+    const cx = edArq.caixas.find(c => String(c.id) === String(caixaId));
+    if (!cx) return;
+    const docs = edArq.docs[cx.id] || 0;
+    if (docs > 0) {
+      U.toast(`A caixa ${cx.codigo} tem ${docs} documento(s) arquivado(s). `
+        + 'Transfira ou remova os documentos antes.', 'error');
+      return;
+    }
+    if (!confirm(`Remover a caixa ${cx.codigo}?`)) return;
+    try {
+      await SGA_API.removerCaixa(cx.id);
+      U.toast(`Caixa ${cx.codigo} removida.`, 'success');
+      loadLocalSelects();
+      loadCaixasTable();
+      await carregarEstruturaSala();
+    } catch (err) { U.toast(err.message, 'error'); }
   }
 
   function fillSelect(id, rows, placeholder) {

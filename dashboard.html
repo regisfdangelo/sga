@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.21">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.27">
 </head>
 <body class="app-page">
 
@@ -280,7 +280,7 @@
         <section class="section" id="section-cadastro">
           <div class="tabs" role="tablist">
             <button class="tab active" data-tab="tab-documento" role="tab">Documentos</button>
-            <button class="tab" data-tab="tab-local" role="tab">Salas de Arquivo</button>
+            <button class="tab" data-tab="tab-local" role="tab">Editar Arquivo</button>
             <button class="tab" data-tab="tab-gerar" role="tab">Gerar Sala de Arquivo</button>
             <button class="tab" data-tab="tab-pesquisa" role="tab">Pesquisa</button>
           </div>
@@ -393,150 +393,77 @@
             </article>
           </div>
 
-          <!-- Aba Localização -->
+          <!-- Aba Editar Arquivo: edita a sala escolhida e a estrutura
+               estante > prateleira > caixa (incluir / remover / transferir).
+               O corredor não aparece mais aqui. -->
           <div class="tab-panel" id="tab-local">
-            <div class="grid-2col">
-              <article class="panel">
-                <header class="panel-header"><h3>Sala</h3></header>
-                <div class="panel-body">
-                  <form id="form-sala" class="form-stack" novalidate>
+            <article class="panel">
+              <header class="panel-header"><h3>Sala</h3></header>
+              <div class="panel-body">
+                <form id="form-editar-sala" novalidate>
+                  <div class="form-grid">
                     <div class="form-group">
-                      <label for="sala-codigo">Código *</label>
-                      <input type="text" id="sala-codigo" readonly maxlength="30" placeholder="SL-001">
+                      <label for="ed-sala">Sala *</label>
+                      <select id="ed-sala" required><option value="">Selecione a sala…</option></select>
                     </div>
                     <div class="form-group">
-                      <label for="sala-descricao">Descrição</label>
-                      <input type="text" id="sala-descricao" maxlength="120" placeholder="Ex.: Arquivo Central">
+                      <label for="ed-sala-codigo">Código</label>
+                      <input type="text" id="ed-sala-codigo" readonly placeholder="Selecione a sala">
                     </div>
                     <div class="form-group">
-                      <label for="sala-capacidade">Capacidade (estantes) *</label>
-                      <input type="number" id="sala-capacidade" required min="1" max="999" value="50">
+                      <label for="ed-sala-descricao">Descrição</label>
+                      <input type="text" id="ed-sala-descricao" maxlength="120" placeholder="Ex.: Arquivo Central">
                     </div>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
-                  </form>
-                </div>
-              </article>
+                    <div class="form-group">
+                      <label for="ed-sala-capacidade">Capacidade (estantes) *</label>
+                      <input type="number" id="ed-sala-capacidade" required min="1" max="999">
+                    </div>
+                    <div class="form-group">
+                      <label for="ed-sala-linha">Linha</label>
+                      <input type="number" id="ed-sala-linha" min="1" max="100">
+                    </div>
+                    <div class="form-group">
+                      <label for="ed-sala-coluna">Coluna</label>
+                      <input type="number" id="ed-sala-coluna" min="1" max="100">
+                    </div>
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="btn-salvar-sala" disabled>Salvar sala</button>
+                  </div>
+                  <p class="ed-aviso" id="ed-sala-aviso" hidden></p>
+                </form>
+              </div>
+            </article>
 
-              <article class="panel">
-                <header class="panel-header"><h3>Corredor</h3></header>
-                <div class="panel-body">
-                  <form id="form-corredor" class="form-stack" novalidate>
-                    <div class="form-group">
-                      <label for="corredor-sala">Sala *</label>
-                      <select id="corredor-sala" required><option value="">Selecione a sala…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="corredor-codigo">Código *</label>
-                      <input type="text" id="corredor-codigo" readonly maxlength="30" placeholder="Selecione a sala">
-                    </div>
-                    <div class="form-group">
-                      <label for="corredor-descricao">Descrição</label>
-                      <input type="text" id="corredor-descricao" maxlength="120" placeholder="Ex.: Corredor Norte">
-                    </div>
-                    <div class="form-group">
-                      <label for="corredor-capacidade">Capacidade (estantes) *</label>
-                      <input type="number" id="corredor-capacidade" required min="1" max="999" value="50">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
-                  </form>
-                </div>
-              </article>
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Pesquisar</h3>
+                <span class="ed-busca-resumo" id="ed-busca-resumo" hidden></span>
+              </header>
+              <div class="panel-body">
+                <form id="form-ed-busca" class="ed-busca-linha" novalidate>
+                  <div class="form-group">
+                    <label for="ed-busca">Filtrar estante, prateleira ou caixa</label>
+                    <input type="search" id="ed-busca" autocomplete="off"
+                      placeholder="Ex.: E-003, CX-000012, prateleira superior">
+                  </div>
+                  <button type="submit" class="btn btn-primary" id="btn-ed-buscar" disabled>Buscar</button>
+                  <button type="button" class="btn btn-ghost" id="btn-ed-limpar-busca" disabled>Limpar</button>
+                </form>
+              </div>
+            </article>
 
-              <article class="panel">
-                <header class="panel-header"><h3>Estante</h3></header>
-                <div class="panel-body">
-                  <form id="form-estante" class="form-stack" novalidate>
-                    <div class="form-group">
-                      <label for="estante-sala">Sala *</label>
-                      <select id="estante-sala" required><option value="">Selecione…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="estante-corredor">Corredor</label>
-                      <select id="estante-corredor"><option value="">Selecione o corredor…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="estante-codigo">Código *</label>
-                      <input type="text" id="estante-codigo" readonly maxlength="30" placeholder="Selecione a sala">
-                    </div>
-                    <div class="form-group">
-                      <label for="estante-descricao">Descrição</label>
-                      <input type="text" id="estante-descricao" maxlength="120">
-                    </div>
-                    <div class="form-group">
-                      <label for="estante-capacidade">Capacidade (prateleiras) * — 8 × 4 = 32 caixas</label>
-                      <input type="number" id="estante-capacidade" required min="1" max="8" value="8">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
-                  </form>
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Estantes · Prateleiras · Caixas</h3>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-ed-incluir-estante" disabled>+ Incluir estante</button>
+              </header>
+              <div class="panel-body">
+                <div class="ed-estrutura" id="ed-estrutura">
+                  <p class="empty-state">Selecione uma sala para ver a estrutura.</p>
                 </div>
-              </article>
-
-              <article class="panel">
-                <header class="panel-header"><h3>Prateleira</h3></header>
-                <div class="panel-body">
-                  <form id="form-prateleira" class="form-stack" novalidate>
-                    <div class="form-group">
-                      <label for="prat-sala">Sala *</label>
-                      <select id="prat-sala" required><option value="">Selecione a sala…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="prat-corredor">Corredor</label>
-                      <select id="prat-corredor"><option value="">Selecione o corredor…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="prat-estante">Estante *</label>
-                      <select id="prat-estante" required><option value="">Selecione a estante…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="prat-codigo">Código *</label>
-                      <input type="text" id="prat-codigo" readonly maxlength="30" placeholder="Selecione sala e estante">
-                    </div>
-                    <div class="form-group">
-                      <label for="prat-descricao">Descrição</label>
-                      <input type="text" id="prat-descricao" maxlength="120">
-                    </div>
-                    <div class="form-group">
-                      <label for="prat-capacidade">Capacidade (caixas) * — máx. 4 por prateleira, 32 por estante</label>
-                      <input type="number" id="prat-capacidade" required min="1" max="4" value="4">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
-                  </form>
-                </div>
-              </article>
-
-              <article class="panel">
-                <header class="panel-header"><h3>Caixa</h3></header>
-                <div class="panel-body">
-                  <form id="form-caixa" class="form-stack" novalidate>
-                    <div class="form-group">
-                      <label for="caixa-sala">Sala *</label>
-                      <select id="caixa-sala" required><option value="">Selecione…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="caixa-corredor">Corredor</label>
-                      <select id="caixa-corredor"><option value="">Selecione o corredor…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="caixa-estante">Estante *</label>
-                      <select id="caixa-estante" required><option value="">Selecione…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="caixa-prateleira">Prateleira *</label>
-                      <select id="caixa-prateleira" required><option value="">Selecione…</option></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="caixa-codigo">Código *</label>
-                      <input type="text" id="caixa-codigo" readonly maxlength="30" placeholder="Selecione a sala">
-                    </div>
-                    <div class="form-group">
-                      <label for="caixa-capacidade">Capacidade (pastas) *</label>
-                      <input type="number" id="caixa-capacidade" required min="1" max="5" value="5">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
-                  </form>
-                </div>
-              </article>
-            </div>
+              </div>
+            </article>
           </div>
 
           <!-- Aba Gerar Sala de Arquivo (cria sala + estrutura inteira) -->
@@ -929,8 +856,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261002.21"></script>
-  <script src="assets/js/api.js?v=20261002.21"></script>
-  <script src="assets/js/app.js?v=20261002.21"></script>
+  <script src="assets/js/config.js?v=20261002.27"></script>
+  <script src="assets/js/api.js?v=20261002.27"></script>
+  <script src="assets/js/app.js?v=20261002.27"></script>
 </body>
 </html>

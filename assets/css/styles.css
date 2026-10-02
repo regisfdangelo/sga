@@ -824,59 +824,166 @@ a { color: var(--primary); }
 }
 
 /* ============================================================
-   ABA "SALAS DE ARQUIVO" — sem barra de rolagem vertical (14")
-   Cada seção (Sala, Corredor, Estante, Prateleira, Caixa) ocupa
-   uma linha inteira, uma embaixo da outra: título em negrito
-   ACIMA dos campos e o botão Salvar no fim da linha de campos.
+   ABA "EDITAR ARQUIVO" — sem barra de rolagem vertical (14")
+   Seleciona uma sala, edita os dados dela e administra a árvore
+   estante > prateleira > caixa (incluir / remover / transferir).
+   Faixas compactas: título da seção + botão na direita.
    ============================================================ */
-#tab-local .grid-2col {
-  grid-template-columns: 1fr;
-  gap: 0;
-}
+#tab-local .panel { margin-bottom: .45rem; }
 
-#tab-local .panel,
-#tab-pesquisa .panel { margin-bottom: 1rem; }
-
-#tab-pesquisa .panel-header { padding: .6rem 1rem; }
-#tab-pesquisa .panel-header h3 { font-size: .92rem; }
-
-/* Título acima da linha de campos, faixa compacta (sem linha cinza) */
-#tab-local .grid-2col .panel {
-  display: block;
-  margin-bottom: .45rem;
-}
-#tab-local .grid-2col .panel:last-child { margin-bottom: 0; }
-#tab-local .grid-2col .panel-header {
+/* Título acima do conteúdo, faixa compacta (sem linha cinza) */
+#tab-local .panel-header {
   padding: .32rem .9rem;
   border-bottom: none;
 }
-#tab-local .grid-2col .panel-header h3 {
+#tab-local .panel-header h3 {
   font-size: .84rem;
   line-height: 1.25;
 }
-#tab-local .grid-2col .panel-body {
-  padding: .4rem .9rem .5rem;
+#tab-local .panel-body { padding: .4rem .9rem .5rem; }
+
+/* Grade dos campos da sala: cabe numa linha de 14" */
+#tab-local .form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: .4rem .7rem;
+}
+#tab-local .form-actions { margin-top: .5rem; }
+
+/* Aviso de regra (grade pequena demais, limite atingido, etc.) */
+.ed-aviso {
+  margin: .5rem 0 0;
+  padding: .4rem .6rem;
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  color: #b45309;
+  font-size: .78rem;
+  border-radius: 0 6px 6px 0;
+}
+.ed-aviso[hidden] { display: none; }
+.ed-aviso.erro {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
-/* Linha de campos: lado a lado (quebram só se não couberem),
-   com o botão Salvar encostado no final da linha */
-#tab-local .grid-2col .form-stack {
+/* Pesquisa da aba Editar Arquivo: campo largo com os botões ao lado */
+#tab-local .ed-busca-linha {
   display: flex;
-  flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: .4rem .7rem;
 }
-#tab-local .grid-2col .form-stack .form-group {
-  flex: 1 1 150px;
-  min-width: 140px;
+#tab-local .ed-busca-linha .form-group { flex: 1 1 240px; }
+#tab-local .ed-busca-linha .btn { flex: 0 0 auto; }
+#tab-local .ed-busca-linha .btn-ghost { color: var(--text-muted); }
+.ed-busca-resumo {
+  font-size: .74rem;
+  color: var(--text-muted);
+  font-weight: 400;
 }
-#tab-local .grid-2col .form-stack .btn {
-  flex: 0 0 auto;
+.ed-busca-resumo[hidden] { display: none; }
+
+/* Botões compactos em TODA a seção Cadastro (Documentos, Editar
+   Arquivo, Gerar Sala de Arquivo e Pesquisa): as telas empilham
+   formulário + tabela na altura de um monitor 14", então os botões
+   encolhem para caber sem barra de rolagem. As classes globais
+   (.btn, .btn-sm) continuam valendo nas outras seções. */
+#section-cadastro .btn,
+#section-relatorio .btn {
+  padding: .3rem .65rem;
+  font-size: .78rem;
+  line-height: 1.15;
+}
+/* Botões de título de painel ficam ainda menores */
+#section-cadastro .panel-header .btn { padding: .24rem .55rem; font-size: .74rem; }
+/* Botões de ação dentro da árvore da Editar Arquivo */
+#section-cadastro .ed-acoes .btn { padding: .15rem .4rem; font-size: .7rem; }
+#section-cadastro .form-actions,
+#section-relatorio .form-actions { margin-top: .45rem; gap: .5rem; }
+#section-cadastro .filters-row,
+#section-relatorio .filters-row { gap: .4rem .6rem; }
+#section-cadastro .ed-busca-linha { gap: .3rem .5rem; }
+#section-cadastro .table-actions { gap: .3rem; }
+
+/* Árvore ---------------------------------------------------------------- */
+.ed-estrutura { display: flex; flex-direction: column; gap: .5rem; }
+
+.ed-estante {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.ed-estante-topo,
+.ed-prateleira-topo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .35rem .5rem;
+}
+.ed-estante-topo {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: .4rem .55rem;
+}
+.ed-nome { font-weight: 700; font-size: .86rem; }
+.ed-prateleira-topo .ed-nome { font-size: .82rem; font-weight: 600; }
+.ed-meta { font-size: .74rem; color: var(--text-muted); }
+
+.ed-acoes {
   margin-left: auto;
-  align-self: flex-end;
-  padding: .45rem 1.1rem;
-  font-size: .85rem;
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+}
+.ed-acoes .btn { padding: .2rem .5rem; font-size: .73rem; }
+.ed-acoes .btn-icone {
+  padding: .2rem .4rem;
+  font-size: .73rem;
+  line-height: 1;
+}
+
+.ed-prateleiras {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  padding: .45rem .55rem;
+}
+.ed-prateleira {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: .35rem .45rem;
+}
+
+.ed-caixas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  margin-top: .35rem;
+}
+.ed-caixa {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  padding: .15rem .25rem .15rem .55rem;
+  font-size: .77rem;
+}
+.ed-caixa-cod { font-weight: 600; }
+.ed-caixa-cap { color: var(--text-muted); font-size: .71rem; }
+.ed-caixa .ed-acoes { margin-left: 0; gap: .15rem; }
+
+/* Sala sem estantes ainda */
+.ed-vazio-sala {
+  margin: 0;
+  padding: .7rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  text-align: center;
+  font-size: .82rem;
+  color: var(--text-muted);
 }
 
 /* Abas da seção Cadastro um pouco mais baixas (ganho vertical) */
@@ -890,12 +997,25 @@ a { color: var(--primary); }
   padding: .4rem .55rem;
   font-size: .85rem;
 }
-/* Código gerado automaticamente (somente leitura) */
-#tab-local .form-group input[readonly] {
+/* Campo de código/posição gerado pelo sistema (somente leitura):
+   fundo cinza claro, sem cursor de edição. Vale para a aba Editar
+   Arquivo e também para os campos dentro dos modais de inclusão. */
+.form-group input[readonly] {
   background: var(--bg);
+  color: var(--text-muted);
   cursor: default;
   letter-spacing: .03em;
 }
+
+/* Formulários do modal de inclusão / transferência (campos empilhados) */
+#modal-body .form-stack { display: flex; flex-direction: column; gap: .7rem; }
+#modal-body .form-stack select,
+#modal-body .form-stack input { width: 100%; }
+#modal-body .ed-aviso { margin-top: .2rem; }
+
+#tab-pesquisa .panel { margin-bottom: 1rem; }
+#tab-pesquisa .panel-header { padding: .6rem 1rem; }
+#tab-pesquisa .panel-header h3 { font-size: .92rem; }
 
 /* ============================================================
    ABA PESQUISA (Cadastro) — navegador de salas: capacidade e

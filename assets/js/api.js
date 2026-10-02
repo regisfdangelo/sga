@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261002.21';
+  const versao = '20261002.27';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -442,6 +442,58 @@ const SGA_API = (() => {
   }
 
   /* ----------------------------------------------------------
+     Aba "Editar Arquivo": remocoes e transferencias da estrutura
+     estante > prateleira > caixa de uma sala JA existente.
+
+     Por que RPC e nao DELETE direto no front:
+     - remocao em CASCATA (estante leva prateleiras e caixas)
+       com bloqueio quando ha documento arquivado;
+     - transferencia em transacao, com RENUMERACAO: o codigo
+       de caixa e unico DENTRO da sala (caixas: unico em
+       (sala_id, codigo)), entao a caixa/estante que muda de
+       sala recebe codigo novo da sequencia do destino.
+     Detalhes da troca de codigo (incluindo o "codigo
+     temporario" sem digito) estao em sql/18_editar_sala_arquivo.sql.
+     ---------------------------------------------------------- */
+
+  async function rpcEditarArquivo(nome, body) {
+    try {
+      return await request('POST', `/rest/v1/rpc/${nome}`, body);
+    } catch (err) {
+      // 42883 = undefined_function: o banco ainda não tem a RPC
+      const msg = err.message || '';
+      if (err.code === '42883' || /does not exist/i.test(msg)) {
+        if (new RegExp(nome, 'i').test(msg)) {
+          throw new Error('RPC ausente ou desatualizada no banco. Execute sql/18_editar_sala_arquivo.sql.');
+        }
+      }
+      throw err;
+    }
+  }
+
+  /** Remove a estante e, em cascata, suas prateleiras e caixas. Recusa se houver documento. */
+  const removerEstante = id => rpcEditarArquivo('remover_estante', { p_estante_id: id });
+
+  /** Remove a prateleira e, em cascata, suas caixas. Recusa se houver documento. */
+  const removerPrateleira = id => rpcEditarArquivo('remover_prateleira', { p_prateleira_id: id });
+
+  /** Remove a caixa. Recusa se houver documento. */
+  const removerCaixa = id => rpcEditarArquivo('remover_caixa', { p_caixa_id: id });
+
+  /** Move a estante INTEIRA (prateleiras e caixas) para outra sala, renumerando os códigos. */
+  const transferirEstante = (estanteId, salaId) =>
+    rpcEditarArquivo('transferir_estante', { p_estante_id: estanteId, p_sala_id: salaId });
+
+  /** Move uma caixa (com os documentos que guarda) para outra sala/estante/prateleira. */
+  const transferirCaixa = (caixaId, salaId, estanteId, prateleiraId) =>
+    rpcEditarArquivo('transferir_caixa', {
+      p_caixa_id: caixaId,
+      p_sala_id: salaId,
+      p_estante_id: estanteId,
+      p_prateleira_id: prateleiraId,
+    });
+
+  /* ----------------------------------------------------------
      Consultas de domínio
      ---------------------------------------------------------- */
 
@@ -586,6 +638,11 @@ const SGA_API = (() => {
     gerarCodigo,
     proximoCodigo,
     gerarSalaArquivo,
+    removerEstante,
+    removerPrateleira,
+    removerCaixa,
+    transferirEstante,
+    transferirCaixa,
     getMetricas,
     searchDocumentos,
     listarUsuarios,
