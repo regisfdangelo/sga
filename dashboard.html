@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.29">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261002.32">
 </head>
 <body class="app-page">
 
@@ -152,6 +152,31 @@
               </div>
             </header>
           </article>
+
+          <!-- Gráficos: velocímetro de ocupação + colunas novos/descartados -->
+          <div class="grid-graficos">
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Ocupação do Arquivo</h3>
+              </header>
+              <div class="panel-body" id="velocimetro">
+                <p class="empty-state">Carregando…</p>
+              </div>
+            </article>
+
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Documentos novos e descartados por mês</h3>
+                <div class="grafico-legenda">
+                  <span class="legenda-item"><i class="grafico-chave k-novos"></i>Novos</span>
+                  <span class="legenda-item"><i class="grafico-chave k-descartados"></i>Descartados</span>
+                </div>
+              </header>
+              <div class="panel-body" id="grafico-mensal">
+                <p class="empty-state">Carregando…</p>
+              </div>
+            </article>
+          </div>
 
           <div class="grid-2col">
             <article class="panel">
@@ -702,6 +727,7 @@
                     <option value="DELETE">Exclusão</option>
                     <option value="LOGIN">Login</option>
                     <option value="LOGOUT">Logout</option>
+                    <option value="DESCARTE">Descarte</option>
                   </select>
                 </div>
                 <div class="form-actions">
@@ -742,7 +768,7 @@
         <section class="section" id="section-temporalidade">
           <article class="panel">
             <header class="panel-header">
-              <h3>Temporalidade — Vencidos e próximos 15 dias <span class="badge" id="temp-count">0</span></h3>
+              <h3>Temporalidade — Vencidos e próximos 5 dias <span class="badge" id="temp-count">0</span></h3>
             </header>
             <div class="panel-body table-wrap">
               <table class="data-table" id="table-temporalidade">
@@ -753,10 +779,11 @@
                     <th>Setor</th>
                     <th>Prazo de Guarda</th>
                     <th>Situação</th>
+                    <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="5" class="empty-state">Carregando…</td></tr>
+                  <tr><td colspan="6" class="empty-state">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -803,8 +830,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261002.29"></script>
-  <script src="assets/js/api.js?v=20261002.29"></script>
-  <script src="assets/js/app.js?v=20261002.29"></script>
+  <script src="assets/js/config.js?v=20261002.32"></script>
+  <script src="assets/js/api.js?v=20261002.32"></script>
+  <script src="assets/js/app.js?v=20261002.32"></script>
 </body>
 </html>

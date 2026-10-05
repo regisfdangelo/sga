@@ -595,6 +595,108 @@ a { color: var(--primary); }
 #section-painel .data-table td { padding: .5rem .75rem; }
 
 /* ============================================================
+   GRÁFICOS DO PAINEL (SVG puro, sem biblioteca)
+   - .grid-graficos: velocímetro (largura fixa) + colunas (1fr);
+   - o SVG escala pela largura do painel (viewBox no JS).
+   ============================================================ */
+.grid-graficos {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) 1fr;
+  gap: 1.25rem;
+  align-items: start;
+  margin-bottom: 1.25rem;
+}
+/* Títulos dos dois cartões de gráfico (velocímetro + colunas) sem
+   a linha cinza do .panel-header: o rótulo que separa o título do
+   corpo polui aqui, onde já há a legenda própria. Mesmo padrão de
+   .mapa-painel, abaixo. Nos demais painéis a linha continua. */
+.grid-graficos .panel-header { border-bottom: none; }
+@media (max-width: 900px) {
+  .grid-graficos { grid-template-columns: 1fr; }
+}
+
+.grafico-legenda {
+  display: flex;
+  gap: 1rem;
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+.grafico-chave {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.grafico-chave.k-novos { background: var(--primary); }
+.grafico-chave.k-descartados { background: var(--danger); }
+
+/* Colunas agrupadas ---------------------------------------- */
+.grafico-svg { width: 100%; height: auto; display: block; }
+.grafico-grade { stroke: var(--border); stroke-width: 1; }
+.grafico-base { stroke: #cbd5e1; stroke-width: 1.5; }
+.grafico-eixo-y,
+.grafico-eixo-x {
+  font-size: 11px;
+  fill: var(--text-muted);
+  font-family: var(--font);
+}
+.grafico-col { transition: opacity var(--transition); }
+.grafico-col:hover { opacity: .75; }
+.grafico-col.c-novos { fill: var(--primary); }
+.grafico-col.c-descartados { fill: var(--danger); }
+
+/* Velocímetro ------------------------------------------------ */
+.velo-svg { width: 100%; height: auto; max-width: 300px; margin: 0 auto; }
+.velo-agulha {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform .8s cubic-bezier(.22, 1, .36, 1);
+}
+.velo-valor {
+  font-size: 34px;
+  font-weight: 800;
+  fill: var(--text);
+  font-family: var(--font);
+  letter-spacing: -.02em;
+}
+.velo-legenda {
+  font-size: 12px;
+  fill: var(--text-muted);
+  font-family: var(--font);
+}
+.velo-mini {
+  font-size: 10px;
+  fill: var(--text-muted);
+  font-family: var(--font);
+}
+/* Legenda das faixas: mais legível que um "70%" solto no meio do arco */
+.velo-faixas {
+  list-style: none;
+  display: flex;
+  justify-content: center;
+  gap: .8rem;
+  flex-wrap: wrap;
+  margin-top: .3rem;
+  font-size: .72rem;
+  color: var(--text-muted);
+}
+.velo-faixas li { display: inline-flex; align-items: center; gap: .3rem; }
+.velo-faixas i { width: 9px; height: 9px; border-radius: 2px; }
+
+.velo-resumo {
+  margin-top: .5rem;
+  text-align: center;
+  font-size: .85rem;
+  color: var(--text-muted);
+}
+.velo-resumo strong {
+  font-size: 1rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.velo-nota { display: block; font-size: .75rem; color: var(--text-muted); }
+
+/* ============================================================
    MAPA DO ARQUIVO (PAINEL) — select de sala; ao escolher, o
    mapa abre num pop-up em tela cheia (.mapa-popup):
    - topo: nome da sala + legenda + botão fechar;
@@ -735,6 +837,25 @@ a { color: var(--primary); }
   flex: 0 0 auto;            /* não encolhe no flex: a medida fica fiel */
 }
 .mapa-estantes .empty-state { width: 100%; }
+
+/* LINHAS E COLUNAS DA SALA: casa vazia da grade (a linha x coluna
+   gravada no cadastro da sala) desenhada só com um traço cinza
+   claro. É o que revela a estrutura da sala real nos vãos onde não
+   há estante — antes eles eram simplesmente fundo vazio.
+
+   O seletor é .mapa-popup .mapa-casa DE PROPÓSITO: o traço pertence
+   só à planta do pop-up em tela cheia, nunca à tela do painel. Se
+   algum dia a grade também existir no painel, este traço não
+   aparece lá sem uma decisão nova. O lado acompanha o quadrado da
+   estante; onde o mapa não preenche a tela (modo escala) cai no
+   mínimo para a casa não achatar a coluna. */
+.mapa-popup .mapa-casa {
+  min-width: var(--mapa-est-lado, 110px);
+  min-height: var(--mapa-est-lado, 110px);
+  border: 1px solid #d9dee3;
+  border-radius: 4px;
+  pointer-events: auto;
+}
 
 /* Bloco da estante: rótulo FORA (em cima) do quadrado */
 .mapa-est {
@@ -1313,6 +1434,19 @@ td.cell-local { white-space: nowrap; }
 .detail-row:last-child { border-bottom: none; }
 .detail-row dt { color: var(--text-muted); font-weight: 600; }
 .detail-row dd { color: var(--text); min-width: 0; }
+
+/* Avisos do pop-up de descarte (Temporalidade) */
+.descarte-aviso {
+  background: var(--warning-bg);
+  border-left: 3px solid var(--warning);
+  color: var(--text);
+  padding: .6rem .8rem;
+  margin: 0 0 .9rem;
+  border-radius: 0 4px 4px 0;
+  font-size: .88rem;
+  line-height: 1.45;
+}
+.modal-body .descarte-aviso:last-child { margin: .9rem 0 0; }
 
 /* JSON exibido no modal de auditoria */
 .detail-row pre.aud-json {

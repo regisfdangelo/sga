@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261002.29';
+  const versao = '20261002.32';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -528,6 +528,171 @@ const SGA_API = (() => {
     };
   }
 
+  /* ----------------------------------------------------------
+     Gráficos do Painel
+     ---------------------------------------------------------- */
+
+  /** Rótulo curto do mês (jan/26) a partir da chave YYYY-MM. */
+  const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
+    'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+  /** Converte 'YYYY-MM' em { chave, rotulo }. */
+  function rotuloMes(chave) {
+    const [a, m] = String(chave).split('-');
+    const mi = parseInt(m, 10) - 1;
+    return {
+      chave,
+      rotulo: `${MESES_CURTOS[mi] || '?'}/${String(a).slice(2)}`,
+    };
+  }
+
+  /** Os últimos N meses, do mais antigo para o atual (YYYY-MM). */
+  function ultimosMeses(n) {
+    const hoje = new Date();
+    const saida = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+      saida.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return saida;
+  }
+
+  /**
+   * Colunas do documento usadas pelos gráficos. `descartado_em`
+   * só existe depois do sql/19: se o banco ainda não tiver a
+   * coluna, caímos no `updated_at` (mesma semântica aproximada) e
+   * a tela segue funcionando com a série "descartados".
+   */
+  const COLS_GRAFICO = 'id,caixa_id,status,created_at,updated_at,descartado_em';
+  const COLS_GRAFICO_SEM_DESCARTE = 'id,caixa_id,status,created_at,updated_at';
+
+  /**
+   * Série mensal (novos x descartados) e ocupação do arquivo.
+   *
+   * - novos: contagem por mês de `created_at`.
+   * - descartados: só o que está com status 'descartado', agrupado
+   *   pela data do descarte (descartado_em, ou updated_at quando o
+   *   banco ainda não tem a coluna do sql/19).
+   * - ocupação: documentos que ocupam espaço físico (têm caixa e
+   *   não foram descartados) sobre a capacidade das caixas.
+   *
+   * `salaId` limita tudo a UMA sala (é o que a barra "Mapa do
+   * Arquivo" escolhe no Painel). O vínculo é
+   * documentos.caixa_id -> caixas.id -> caixas.sala_id, então:
+   *   - só entram documentos cuja caixa está na sala;
+   *   - a capacidade é a soma das caixas DA SALA;
+   *   - documento sem caixa não pertence a sala nenhuma e fica de
+   *     fora (não dá para atribuí-lo a uma sala sem inventar).
+   * Sem `salaId` o cálculo é o global de antes (acervo inteiro).
+   */
+  async function getGraficosPainel(meses = 12, salaId = null) {
+    const filtro = salaId ? String(salaId) : '';
+
+    // As caixas primeiro: é delas que sai a capacidade e o vínculo
+    // com a sala, e o recorte dos documentos depende disso.
+    const caixas = (await listTudo('caixas', '&order=codigo,id', 'id,sala_id,capacidade')) || [];
+
+    const caixasDaSala = new Set();
+    const doAcervo = caixas.filter(c => {
+      if (!filtro) return true;
+      const mesma = String(c.sala_id) === filtro;
+      if (mesma) caixasDaSala.add(c.id);
+      return mesma;
+    });
+
+    let capacidade = 0;
+    doAcervo.forEach(c => {
+      const cap = Number(c.capacidade);
+      if (cap > 0) capacidade += cap;
+    });
+
+    const pertence = doc => {
+      if (!filtro) return true;
+      return !!doc.caixa_id && caixasDaSala.has(doc.caixa_id);
+    };
+
+    let linhas;
+    try {
+      linhas = await listTudo('documentos', '&order=created_at,id', COLS_GRAFICO);
+    } catch (err) {
+      // 42703 = undefined_column: banco ainda sem o sql/19 aplicado.
+      // O PostgREST devolve `code` como texto; aceitamos os dois tipos.
+      const msg = err && (err.message || '');
+      if (String(err && err.code) !== '42703' && !/column .* does not exist/i.test(msg)) throw err;
+      linhas = await listTudo('documentos', '&order=created_at,id', COLS_GRAFICO_SEM_DESCARTE);
+    }
+
+    const documentos = (linhas || []).filter(pertence);
+    const chaves = ultimosMeses(meses);
+    const noPeriodo = new Set(chaves);
+    const novos = {};
+    const descartados = {};
+    chaves.forEach(c => { novos[c] = 0; descartados[c] = 0; });
+
+    /** Mês (YYYY-MM) de um timestamp ISO, no fuso do navegador. */
+    const mesDe = iso => {
+      if (!iso) return null;
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const porCaixa = {};
+    documentos.forEach(d => {
+      const criado = mesDe(d.created_at);
+      if (criado && noPeriodo.has(criado)) novos[criado]++;
+
+      if (d.status === 'descartado') {
+        const quando = mesDe(d.descartado_em || d.updated_at || d.created_at);
+        if (quando && noPeriodo.has(quando)) descartados[quando]++;
+      }
+
+      // Ocupação: documento descartado ou sem caixa não ocupa espaço
+      if (d.caixa_id && d.status !== 'descartado') {
+        porCaixa[d.caixa_id] = (porCaixa[d.caixa_id] || 0) + 1;
+      }
+    });
+
+    const ocupadas = Object.values(porCaixa).reduce((a, b) => a + b, 0);
+    const percentual = capacidade > 0 ? Math.round((ocupadas / capacidade) * 100) : null;
+
+    return {
+      sala_id: filtro || null,
+      meses: chaves.map(c => ({ ...rotuloMes(c), novos: novos[c], descartados: descartados[c] })),
+      ocupacao: {
+        ocupadas,
+        capacidade,
+        percentual,
+        caixas: doAcervo.length,
+      },
+    };
+  }
+
+  /**
+   * Marca o documento como descartado (tela Temporalidade). A regra
+   * mora no banco (sql/19): Emprestado não descarta e documento
+   * sem prazo vencido precisa de p_confirmar.
+   */
+  async function descartarDocumento(id, confirmar = false) {
+    let r;
+    try {
+      r = await request('POST', '/rest/v1/rpc/descartar_documento', {
+        p_documento_id: id,
+        p_confirmar: confirmar,
+      });
+    } catch (err) {
+      // 42883 = undefined_function: banco sem o sql/19 aplicado
+      const msg = err && (err.message || '');
+      if (err.code === '42883' || /does not exist/i.test(msg)) {
+        if (/descartar_documento/i.test(msg)) {
+          throw new Error('RPC descartar_documento ausente. Execute sql/19_descarte_documento.sql no banco.');
+        }
+      }
+      throw err;
+    }
+    return r || {};
+  }
+
   async function searchDocumentos(filtros = {}) {
     const parts = [];
 
@@ -644,6 +809,13 @@ const SGA_API = (() => {
     transferirEstante,
     transferirCaixa,
     getMetricas,
+    getGraficosPainel,
+    // Reexportados para o Painel montar o estado zerado com os MESMOS
+    // rótulos que os dados reais trazem (mes/ano).
+    MESES_CURTOS,
+    rotuloMes,
+    ultimosMeses,
+    descartarDocumento,
     searchDocumentos,
     listarUsuarios,
     criarUsuario,

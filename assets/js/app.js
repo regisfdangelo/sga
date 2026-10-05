@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261002.29';
+  const VERSAO_APP = '20261002.32';
 
   /* ============================================================
      UTILITÁRIOS
@@ -420,6 +420,14 @@
       document.getElementById('metric-atrasados').textContent = m.atrasados;
       document.getElementById('metric-descarte').textContent = m.paraDescarte;
 
+      // Gráficos: entram zerados e só carregam quando a sala for
+      // escolhida na barra do Mapa do Arquivo (mais abaixo).
+      // A escolha anterior também é limpa: deixar o select nomeando
+      // uma sala com os gráficos zerados seria mentiroso.
+      const selSala = document.getElementById('mapa-sala');
+      if (selSala) selSala.value = '';
+      zerarGraficosPainel();
+
       // Mapa do arquivo (select de sala + grade de caixas)
       initMapaArquivo().catch(err => console.warn('mapa do arquivo:', err.message));
 
@@ -465,6 +473,259 @@
   }
 
   /* ============================================================
+     GRÁFICOS DO PAINEL (SVG puro, sem biblioteca externa)
+
+     1) VELOCÍMETRO da ocupação do arquivo: arco de 180° com três
+        faixas (verde até 70%, amarelo 70-90%, vermelho acima de
+        90%), agulha no valor atual e o total de pastas ocupadas
+        sobre a capacidade.
+     2) COLUNAS AGRUPADAS mês a mês: duas colunas por mês (novos e
+        descartados), com eixo Y em escala "redondada" e rótulo em
+        cima de cada coluna.
+
+     Ambos são desenhados em SVG com viewBox: escalam com a largura
+     do painel sem depender de <canvas> nem de CDN (a CSP do
+     projeto bloqueia script externo).
+     ============================================================ */
+
+  /** Escala do eixo Y: teto "redondo" acima do maior valor. */
+  function tetoEixo(maximo) {
+    if (!(maximo > 0)) return 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(maximo)));
+    const n = maximo / magnitude;
+    const passo = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+    return passo * magnitude;
+  }
+
+  /** Número curto no eixo: 1.2 mil em vez de 1200. */
+  function numeroEixo(n) {
+    return n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)} mil` : String(n);
+  }
+
+  /**
+   * Abrevia a legenda do eixo X quando há mês demais para caber.
+   *
+   * Os rótulos são contados a partir do ÚLTIMO mês (e não do
+   * primeiro): assim o último nunca fica colado no penúltimo,
+   * acontecia com 12 meses em painel estreito (passo 2 exibindo
+   * out/25 nov/25 ... ago/26 set/26, com ago/set grudados).
+   */
+  function rotuloEixoX(rotulo, indice, total, largura) {
+    const passo = Math.max(1, Math.ceil(total / Math.max(2, Math.floor(largura / 42))));
+    if ((total - 1 - indice) % passo !== 0) return '';
+    return rotulo;
+  }
+
+  /**
+   * Desenha o velocímetro de ocupação.
+   * `ocupacao` = { ocupadas, capacidade, percentual, caixas }.
+   */
+  function renderVelocimetro(ocupacao) {
+    const box = document.getElementById('velocimetro');
+    if (!box) return;
+    const { ocupadas, capacidade, percentual } = ocupacao;
+
+    // Sem capacidade cadastrada não há o que medir: mostra o
+    // aviso em vez de um velocímetro mentiroso (0%).
+    if (!(capacidade > 0)) {
+      box.innerHTML =
+        '<p class="empty-state">Sem capacidade cadastrada nas caixas — '
+        + 'defina a capacidade de arquivamento para medir a ocupação.</p>';
+      return;
+    }
+
+    // Acima de 100% (documento em caixa cheia) o arco satura em 100.
+    const pct = Math.max(0, Math.min(100, percentual));
+    const CX = 130, CY = 128, RAIO = 100, ESPESSURA = 20;
+    const SEMICENTRO = RAIO - ESPESSURA / 2;   // eixo da faixa colorida
+    // 180° = esquerda, 90° = topo, 0° = direita. Y do SVG cresce para
+    // baixo, por isso o sinal de menos no seno.
+    const ponto = (graus, r) => {
+      const rad = (graus * Math.PI) / 180;
+      return [CX + r * Math.cos(rad), CY - r * Math.sin(rad)];
+    };
+    /**
+     * Arco como POLILINHA de 1 grau por segmento.
+     *
+     * O comando SVG `A` (arco elíptico) fica ambíguo quando os
+     * dois pontos distam menos que o diâmetro: o renderizador pode
+     * escolher o outro centro de curvatura e o arco sai pelo lado
+     * errado — foi o que aconteceu com as faixas deste gráfico
+     * (o verde "comia" parte do amarelo). A polilinha não depende
+     * de flag: ela passa exatamente pelos pontos calculados.
+     */
+    const arco = (a1, a2, r) => {
+      const passos = Math.max(1, Math.round(Math.abs(a1 - a2)));
+      const d = [];
+      for (let i = 0; i <= passos; i++) {
+        const [x, y] = ponto(a1 + ((a2 - a1) * i) / passos, r);
+        d.push(`${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`);
+      }
+      return d.join(' ');
+    };
+    const deg = pct / 100 * 180;
+
+    const cor = pct >= 90 ? 'var(--danger)' : pct >= 70 ? 'var(--warning)' : 'var(--success)';
+    // Limiares em % convertidos para graus (180° = 0%, 0° = 100%).
+    const g = p => 180 - (p / 100) * 180;
+    const faixas = [
+      { a1: g(0), a2: g(70), cor: 'var(--success)' },
+      { a1: g(70), a2: g(90), cor: 'var(--warning)' },
+      { a1: g(90), a2: g(100), cor: 'var(--danger)' },
+    ];
+
+    const agulha = `
+      <g class="velo-agulha" style="transform:rotate(${(-90 + deg).toFixed(2)}deg)">
+        <path d="M ${CX} ${(CY - SEMICENTRO).toFixed(2)} L ${CX - 5} ${CY + 12} L ${CX + 5} ${CY + 12} Z"
+              fill="var(--text)"/>
+      </g>
+      <circle cx="${CX}" cy="${CY}" r="7" fill="var(--text)"/>`;
+
+    box.innerHTML = `
+      <svg class="velo-svg" viewBox="0 0 260 176" role="img"
+           aria-label="Ocupação do arquivo: ${percentual}% (${ocupadas} de ${capacidade} pastas)">
+        <title>Ocupação do arquivo: ${percentual}% (${ocupadas} de ${capacidade} pastas)</title>
+        ${faixas.map(f => `<path d="${arco(f.a1, f.a2, SEMICENTRO)}" fill="none"
+              stroke="${f.cor}" stroke-width="${ESPESSURA}" stroke-linecap="butt"/>`).join('')}
+        <path d="${arco(180, 180 - deg, SEMICENTRO)}" fill="none" stroke="${cor}"
+              stroke-width="${ESPESSURA}" opacity=".35"/>
+        ${agulha}
+        <text class="velo-valor" x="${CX}" y="${CY - 30}" text-anchor="middle">${percentual}%</text>
+        <text class="velo-legenda" x="${CX}" y="${CY - 12}" text-anchor="middle">ocupação</text>
+        <text class="velo-mini" x="${CX - RAIO - 6}" y="${CY + 20}" text-anchor="start">0%</text>
+        <text class="velo-mini" x="${CX + RAIO + 6}" y="${CY + 20}" text-anchor="end">100%</text>
+      </svg>
+      <ul class="velo-faixas">
+        <li><i style="background:var(--success)"></i>0–70%</li>
+        <li><i style="background:var(--warning)"></i>70–90%</li>
+        <li><i style="background:var(--danger)"></i>90–100%</li>
+      </ul>
+      <p class="velo-resumo">
+        <strong>${ocupadas}</strong> de ${capacidade} pastas ocupadas
+        <span class="velo-nota">(${ocupacao.caixas} caixa(s) cadastrada(s))</span>
+      </p>`;
+  }
+
+  /**
+   * Desenha o gráfico de colunas agrupadas (novos x descartados).
+   * `meses` = [{ rotulo, novos, descartados }].
+   */
+  function renderGraficoMensal(meses) {
+    const box = document.getElementById('grafico-mensal');
+    if (!box) return;
+    const dados = meses || [];
+
+    const maximo = dados.reduce((m, d) => Math.max(m, d.novos, d.descartados), 0);
+
+    // Sem movimento nenhum os valores são ZERO, não ausência de dado:
+    // o gráfico continua desenhado (eixo, rótulos e colunas zeradas)
+    // para o usuário não concluir que a série sumiu.
+    if (!dados.length) {
+      box.innerHTML = '<p class="empty-state">Sem meses para exibir</p>';
+      return;
+    }
+
+    const L = 36, R = 8, T = 18, B = 30;   // margens
+    const W = 720, H = 250;
+    const larguraPlot = W - L - R;
+    const alturaPlot = H - T - B;
+    const teto = tetoEixo(maximo);
+    const y = v => T + alturaPlot - (v / teto) * alturaPlot;
+
+    // Grade + rótulos do eixo Y
+    const passos = 4;
+    const grade = Array.from({ length: passos + 1 }, (_, i) => {
+      const v = (teto / passos) * i;
+      const py = y(v).toFixed(1);
+      return `<line class="grafico-grade" x1="${L}" y1="${py}" x2="${W - R}" y2="${py}"/>`
+        + `<text class="grafico-eixo-y" x="${L - 7}" y="${py}" text-anchor="end" dy=".32em">${numeroEixo(v)}</text>`;
+    }).join('');
+
+    // Uma faixa por mês, com as DUAS colunas lado a lado
+    const banda = larguraPlot / dados.length;
+    const LARG_BARRA = Math.min(16, Math.max(6, banda * 0.3));
+    const folga = Math.max(2, banda * 0.08);
+
+    const corpo = dados.map((d, i) => {
+      const centro = L + banda * (i + 0.5);
+      const base = T + alturaPlot;
+      const barra = (valor, dx, classe) => {
+        if (!(valor > 0)) {
+          // zero ainda mostra a base da coluna (1px), para o mês
+          // não sumir do eixo
+          return `<rect class="${classe}" x="${(centro + dx).toFixed(1)}" y="${(base - 1).toFixed(1)}"
+                    width="${LARG_BARRA}" height="1" opacity=".25"><title>${U.esc(d.rotulo)}: 0</title></rect>`;
+        }
+        const h = Math.max(2, (valor / teto) * alturaPlot);
+        return `<rect class="${classe}" x="${(centro + dx).toFixed(1)}" y="${(base - h).toFixed(1)}"
+                  width="${LARG_BARRA}" height="${h.toFixed(1)}" rx="2">
+                  <title>${U.esc(d.rotulo)}: ${valor}</title>
+                </rect>`;
+      };
+      return barra(d.novos, -(LARG_BARRA / 2 + folga / 2), 'grafico-col c-novos')
+        + barra(d.descartados, folga / 2, 'grafico-col c-descartados')
+        + `<text class="grafico-eixo-x" x="${centro.toFixed(1)}" y="${base + 15}"
+                 text-anchor="middle">${U.esc(rotuloEixoX(d.rotulo, i, dados.length, larguraPlot))}</text>`;
+    }).join('');
+
+    box.innerHTML = `
+      <svg class="grafico-svg" viewBox="0 0 ${W} ${H}" role="img"
+           aria-label="Documentos novos e descartados por mês (últimos ${dados.length} meses)">
+        <title>Documentos novos e descartados por mês (últimos ${dados.length} meses)</title>
+        ${grade}
+        ${corpo}
+        <line class="grafico-base" x1="${L}" y1="${T + alturaPlot}" x2="${W - R}" y2="${T + alturaPlot}"/>
+      </svg>`;
+  }
+
+  /** Carrega e desenha os dois gráficos do painel para UMA sala. */
+  async function loadGraficosPainel(salaId) {
+    if (!salaId) {
+      zerarGraficosPainel();
+      return;
+    }
+    const g = await SGA_API.getGraficosPainel(12, salaId);
+    // A sala pode ter sido trocada enquanto o fetch estava no ar:
+    // o resultado velho não pode pintar no lugar da sala nova.
+    const sel = document.getElementById('mapa-sala');
+    if (sel && String(sel.value) !== String(salaId)) return;
+    renderVelocimetro(g.ocupacao || {});
+    renderGraficoMensal(g.meses || []);
+  }
+
+  /**
+   * Estado inicial do Painel: gráficos SEM INFORMAÇÃO, porque
+   * nenhum deles faz sentido antes de escolher a sala — a ocupação
+   * e as séries são por sala, e o total do acervo inteiro é outra
+   * leitura (que a tela não mostra).
+   *
+   * O gráfico mensal sai com os 12 meses em zero de verdade (eixo,
+   * rótulos e colunas zeradas), que é o que o usuário pediu. Já o
+   * velocímetro NÃO vira 0%: sem sala não há capacidade conhecida,
+   * e 0% ali seria um número inventado (mesma razão do aviso de
+   * "sem capacidade cadastrada" lá embaixo). Fica o recado.
+   */
+  function zerarGraficosPainel() {
+    const velo = document.getElementById('velocimetro');
+    if (velo) {
+      velo.innerHTML =
+        '<p class="empty-state">Selecione uma sala no Mapa do Arquivo '
+        + 'para ver a ocupação dela.</p>';
+    }
+    renderGraficoMensal(semDadosMensais(12));
+  }
+
+  /**
+   * 12 meses em zero para o estado sem sala. Os rótulos saem dos
+   * MESMOS helpers do api.js, senão o eixo X trocaria de formato
+   * no instante em que a sala fosse escolhida.
+   */
+  function semDadosMensais(n) {
+    return SGA_API.ultimosMeses(n)
+      .map(c => ({ ...SGA_API.rotuloMes(c), novos: 0, descartados: 0 }));
+  }
+
+  /* ============================================================
      MAPA DO ARQUIVO (painel): select de sala + planta da sala.
      A planta é um GRID ÚNICO de estantes: um QUADRADO por
      estante (rótulo da estante fora do quadrado) e, dentro,
@@ -477,9 +738,14 @@
   let mapaSalas = [];
 
   /**
-   * Preenche o select de salas do Painel. O mapa NÃO abre aqui:
-   * nem ao entrar na seção nem ao escolher a sala — só com o
-   * botão "Ver mapa" (habilitado quando há sala escolhida).
+   * Preenche o select de salas do Painel.
+   *
+   * Escolher a sala carrega a SALA e os GRÁFICOS dela: a planta
+   * continua abrindo pelo botão "Ver mapa" (decisão mantida), mas
+   * ocupação e série mensal passam a ser daquela sala.
+   *
+   * Os gráficos entram zerados ao abrir a seção, então a 1ª escolha
+   * também é quem "liga" o painel — não há leitura do acervo inteiro.
    */
   async function initMapaArquivo() {
     const sel = document.getElementById('mapa-sala');
@@ -491,6 +757,7 @@
         // Trocar a sala com o mapa aberto: fecha para não mostrar
         // a planta de uma sala e o nome de outra.
         fechaMapa();
+        carregaGraficosDaSala(sel.value);
       });
       window.addEventListener('resize', encaixaMapa);
       document.getElementById('mapa-abrir')?.addEventListener('click', abreMapa);
@@ -548,6 +815,16 @@
     const sel = document.getElementById('mapa-sala');
     const btn = document.getElementById('mapa-abrir');
     if (btn) btn.disabled = !sel || !sel.value;
+  }
+
+  /**
+   * Sala escolhida -> gráficos daquela sala. Sem sala (ou com
+   * escolha vazia) volta tudo ao estado zerado. Erro de rede não
+   * pode virar tela quebrada: avisa no console e mantém o anterior.
+   */
+  function carregaGraficosDaSala(salaId) {
+    return loadGraficosPainel(salaId || null)
+      .catch(err => console.warn('gráficos da sala:', err.message));
   }
 
   /** Zera os estilos inline de layout do mapa (medidas/variáveis). */
@@ -872,7 +1149,18 @@
       if (fixas.size !== estantes.length || (semEstante.length && !pSem)) {
         return null;  // não coube tudo — mantém a grade estimada
       }
-      return { linhas, colunas, fixas, semEstante: pSem };
+      // Casas livres da grade (linha x coluna da sala sem estante):
+      // é o que permite desenhar o traço cinza claro da estrutura
+      // da sala. `livres` (e não `vazias`) porque o nome `vazias`
+      // já é, aqui fora, a CONTAGEM de caixas vazias.
+      const livres = [];
+      for (let l = 1; l <= linhas; l++) {
+        for (let c = 1; c <= colunas; c++) {
+          if (!casas.has(`${l}|${c}`)) livres.push({ linha: l, coluna: c });
+        }
+      }
+
+      return { linhas, colunas, fixas, semEstante: pSem, livres };
     };
 
     const planta = posicionaNaGrade();
@@ -896,6 +1184,17 @@
       delete grid.dataset.linhas;
       delete grid.dataset.colunas;
     }
+    // Traço cinza claro nas casas livres da grade: é o que mostra a
+    // linha x coluna da sala real onde ainda não há estante. Entra
+    // DEPOIS do dataset.blocos para não contar casa vazia como
+    // estante (encaixaMapa() dimensiona pelo nº de estantes).
+    if (planta && planta.livres.length) {
+      planta.livres.forEach(p => blocos.push(
+        `<div class="mapa-casa" aria-hidden="true"`
+        + ` title="Linha ${p.linha}, coluna ${p.coluna} — sem estante"`
+        + ` style="grid-row:${p.linha};grid-column:${p.coluna}"></div>`));
+    }
+
     grid.innerHTML = blocos.join('');
 
     // Barra de informação da sala: contagens + % de ocupação da
@@ -2716,13 +3015,16 @@
 
   /* ============================================================
      SEÇÃO: TEMPORALIDADE — somente documentos VENCIDOS e os que
-     vencem em até 15 dias
+     vencem em até JANELA_VENCIMENTO_DIAS dias
      ============================================================ */
-  const JANELA_VENCIMENTO_DIAS = 15;
+  // Janela da tela: documentos vencidos ou a vencer em até 5 dias.
+  // O botão Descartar segue exatamente o mesmo corte, e só aparece
+  // para quem não está emprestado.
+  const JANELA_VENCIMENTO_DIAS = 5;
 
   async function loadTemporalidade() {
     const tbody = document.querySelector('#table-temporalidade tbody');
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Carregando…</td></tr>';
 
     try {
       const docs = await SGA_API.list(
@@ -2735,7 +3037,9 @@
       const limite = new Date(Date.now() + JANELA_VENCIMENTO_DIAS * 86400000)
         .toISOString().slice(0, 10);
 
-      // Vencidos (prazo <= hoje) + os que vencem em até 15 dias
+      // Vencidos (prazo <= hoje) + os que vencem em até 5 dias.
+      // O filtro é o mesmo que decide se a linha tem o botão
+      // Descartar: quem não aparece aqui também não é descartável.
       const lista = (docs || [])
         .filter(d => d.prazo_guarda && d.status !== 'descartado' && d.prazo_guarda <= limite)
         .sort((a, b) => a.prazo_guarda.localeCompare(b.prazo_guarda));
@@ -2743,7 +3047,8 @@
       document.getElementById('temp-count').textContent = lista.length;
 
       if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum documento vencido ou a vencer em até 15 dias</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">'
+          + `Nenhum documento vencido ou a vencer em até ${JANELA_VENCIMENTO_DIAS} dias</td></tr>`;
         return;
       }
 
@@ -2759,6 +3064,9 @@
         } else {
           situacao = `<span class="status status-emprestado">Vence em ${dias} dia${dias > 1 ? 's' : ''}</span>`;
         }
+        // Emprestado não pode ser descartado (a regra está no banco):
+        // o botão fica desabilitado com o motivo no title.
+        const bloqueado = d.status === 'emprestado';
         return `
         <tr>
           <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
@@ -2766,12 +3074,135 @@
           <td>${U.esc(d.setor)}</td>
           <td class="cell-protocolo">${U.fmtData(d.prazo_guarda)}</td>
           <td>${situacao}</td>
+          <td>
+            ${bloqueado
+              ? '<button type="button" class="btn btn-ghost btn-sm" disabled '
+                + 'title="Documento emprestado: registre a devolução antes de descartar">Descartar</button>'
+              : `<button type="button" class="btn btn-danger btn-sm temp-descartar"
+                   data-descartar="${U.esc(d.id)}"
+                   data-doc='${U.esc(JSON.stringify({
+                     id: d.id, protocolo: d.protocolo, descricao: d.descricao,
+                     setor: d.setor, prazo_guarda: d.prazo_guarda,
+                     status: d.status, dias,
+                   }))}'
+                   title="Descartar este documento">Descartar</button>`}
+          </td>
         </tr>`;
       }).join('');
+
+      // Um único listener por linha (o tbody é recriado a cada carga)
+      tbody.querySelectorAll('[data-descartar]').forEach(btn => {
+        btn.addEventListener('click', () => descartarDaTemporalidade(btn));
+      });
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
       U.toast(err.message, 'error');
     }
+  }
+
+  /**
+   * Pop-up de confirmação do descarte.
+   *
+   * Mostra os dados do documento, quem está logado (é isso que vai
+   * para o log de auditoria) e a data/hora prevista. O botão só
+   * age depois do clique em "Descartar".
+   *
+   * `forcar` reexibe o modal avisando que o banco recusou por
+   * prazo de guarda ainda não vencido: aí o p_confirmar = true.
+   */
+  function abrirConfirmacaoDescarte(doc, forcar, aoConcluir) {
+    const usuario = SGA_API.getStoredUser() || {};
+    const dataHora = new Date().toLocaleString('pt-BR');
+    const vencido = Number(doc.dias) < 0;
+
+    const aviso = forcar
+      ? '<p class="descarte-aviso">'
+        + '<strong>Atenção:</strong> o prazo de guarda deste documento ainda não venceu. '
+        + 'Confirmar agora registra o descarte como decisão deliberada.'
+        + '</p>'
+      : '';
+
+    const linhas = [
+      ['Protocolo', U.esc(doc.protocolo || '—')],
+      ['Descrição', U.esc(doc.descricao || '—')],
+      ['Setor', U.esc(doc.setor || '—')],
+      ['Prazo de Guarda', `${U.fmtData(doc.prazo_guarda)} (${vencido
+        ? 'vencido'
+        : `vence em ${doc.dias} dia${Number(doc.dias) === 1 ? '' : 's'}`})`],
+      ['Descartado por', U.esc(usuario.nome || usuario.email || 'usuário logado')],
+      ['Perfil', U.esc(usuario.perfil === 'admin' ? 'Administrador' : 'Arquivista')],
+      ['Data e hora do descarte', dataHora],
+    ];
+
+    const body = `${aviso}<dl>${linhas
+      .map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`)
+      .join('')}</dl>
+      <p class="descarte-aviso">
+        O documento sai do acervo, deixa de ocupar pasta e passa a contar
+        como descarte no gráfico do painel. O log “DESCARTE” fica gravado
+        na Auditoria com o seu nome, a data e a hora.
+      </p>`;
+
+    const footer = '<button class="btn btn-ghost" id="descartar-cancelar">Cancelar</button>'
+      + `<button class="btn btn-danger" id="descartar-confirmar">Descartar</button>`;
+
+    Modal.open('Confirmar descarte', body, footer);
+
+    document.getElementById('descartar-cancelar')
+      .addEventListener('click', () => Modal.close());
+    document.getElementById('descartar-confirmar')
+      .addEventListener('click', () => aoConcluir(doc, forcar));
+  }
+
+  /**
+   * Descarta o documento e recarrega a lista.
+   *
+   * A RPC (sql/19) recusa o descarte antes do vencimento ou sem
+   * prazo definido; nesse caso o pop-up reabre com o aviso e o
+   * pedido é reenviado com p_confirmar = true — a decisão é do
+   * arquivista, não do código.
+   */
+  async function descartarDaTemporalidade(btn) {
+    let doc;
+    try {
+      doc = JSON.parse(btn.dataset.doc);
+    } catch {
+      U.toast('Não foi possível ler os dados do documento.', 'error');
+      return;
+    }
+
+    // `forcar` = true reabre o mesmo modal com o aviso de prazo
+    // ainda não vencido (o banco recusou o pedido anterior).
+    const tentar = (forcar, botao) => {
+      abrirConfirmacaoDescarte(doc, forcar, async (d, confirmar) => {
+        if (botao) {
+          if (botao.disabled) return;
+          botao.disabled = true;
+          U.loading(botao, true);
+        }
+        try {
+          await SGA_API.descartarDocumento(d.id, confirmar);
+          Modal.close();
+          U.toast(`Documento ${d.protocolo} descartado por `
+            + `${(SGA_API.getStoredUser() || {}).nome || 'você'}.`, 'success');
+          loadTemporalidade();
+        } catch (err) {
+          const msg = err.message || '';
+          Modal.close();
+          // Recusa por prazo ainda não vencido: reabre o modal
+          // mostrando o motivo, em vez de um confirm() solto.
+          if (!confirmar && /prazo de guarda/i.test(msg)) return tentar(true, botao);
+          U.toast(msg, 'error');
+        } finally {
+          if (botao) {
+            botao.disabled = false;
+            U.loading(botao, false);
+          }
+        }
+      });
+    };
+
+    tentar(false, btn);
   }
 
   /* ============================================================
@@ -3082,6 +3513,7 @@
       DELETE: 'status-atrasado',
       LOGIN: 'status-ativo',
       LOGOUT: 'status-devolvido',
+      DESCARTE: 'status-atrasado',
     };
     return `<span class="status ${mapa[acao] || 'status-descartado'}">${U.esc(acao)}</span>`;
   }
