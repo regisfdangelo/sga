@@ -1143,6 +1143,51 @@ a { color: var(--primary); }
 #modal-body .form-stack input { width: 100%; }
 #modal-body .ed-aviso { margin-top: .2rem; }
 
+/* Transferir caixa: pergunta "mesma sala" x "outra sala".
+   O radio fica escondido e o <span> vira o chip selecionável. */
+#modal-body .cx-tipo { display: flex; flex-wrap: wrap; gap: .5rem; }
+#modal-body .cx-tipo-op { position: relative; flex: 1 1 190px; }
+#modal-body .cx-tipo-op input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+#modal-body .cx-tipo-op span {
+  display: block;
+  padding: .5rem .7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font-size: .85rem;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+#modal-body .cx-tipo-op input:checked + span {
+  border-color: var(--primary);
+  background: var(--info-bg);
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+#modal-body .cx-tipo-op input:focus-visible + span {
+  outline: 2px solid var(--primary-light);
+  outline-offset: 2px;
+}
+#modal-body .cx-tipo-op input:disabled + span {
+  opacity: .55;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+/* Prévia do código que a caixa vai receber (mesma/outra sala) */
+#modal-body .cx-prev {
+  margin: 0;
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+
 /* ============================================================
    TABELA DA ÁRVORE (Editar Arquivo)
    ============================================================ */

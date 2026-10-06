@@ -2582,84 +2582,259 @@
     });
   }
 
+  /**
+   * Transferir CAIXA (com os documentos que guarda) para outra
+   * prateleira — na MESMA sala ou em OUTRA sala de arquivo.
+   *
+   * O modal pergunta primeiro o destino:
+   *   - mesma sala: estantes/prateleiras/caixas vêm da própria
+   *     árvore (nenhuma consulta nova);
+   *   - outra sala: os dados são lidos da sala escolhida.
+   *
+   * Prateleira cheia (n >= capacidade, máx. MAX_CX_PRAT) ou a
+   * ATUAL da caixa vem desabilitada; a ocupação é lida de novo na
+   * hora de confirmar e o banco recusa mais uma vez na gravação.
+   */
   async function transferirCaixa(caixaId) {
     if (!edArq.sala) return;
     const cx = edArq.caixas.find(c => String(c.id) === String(caixaId));
     if (!cx) return;
-    const destino = salasCache.filter(s => String(s.id) !== String(edArq.sala.id));
-    if (!destino.length) {
-      U.toast('Não há outra sala cadastrada para receber a caixa.', 'warning');
-      return;
-    }
     const docs = edArq.docs[cx.id] || 0;
+    const salaAtual = edArq.sala;
+    const outrasSalas = salasCache.filter(s => String(s.id) !== String(salaAtual.id));
+    const pratAtual = cx.prateleira_id ? String(cx.prateleira_id) : '';
 
     Modal.open(`Transferir caixa ${cx.codigo}`, `
       <form class="form-stack" onsubmit="return false">
         <p class="ed-aviso">Move a caixa com ${docs} documento(s) guardado(s).
-          A caixa recebe código novo na sala de destino.</p>
+          Para onde ela vai? Em outra sala a caixa recebe código novo;
+          na mesma sala ela mantém o código.</p>
         <div class="form-group">
+          <label>Destino *</label>
+          <div class="cx-tipo">
+            <label class="cx-tipo-op">
+              <input type="radio" name="cx-tipo" value="mesma" checked>
+              <span>Mesma sala — ${U.esc(salaAtual.codigo)}${salaAtual.descricao ? ' — ' + U.esc(salaAtual.descricao) : ''}</span>
+            </label>
+            <label class="cx-tipo-op">
+              <input type="radio" name="cx-tipo" value="outra"${outrasSalas.length ? '' : ' disabled'}>
+              <span>Outra sala de arquivo${outrasSalas.length ? '' : ' (nenhuma cadastrada)'}</span>
+            </label>
+          </div>
+        </div>
+        <p class="cx-prev" id="cx-prev-cod"></p>
+        <div class="form-group" id="cx-bloco-sala" style="display:none">
           <label for="edf-cx-sala">Sala de destino *</label>
-          <select id="edf-cx-sala">${opcoesDestino(destino, 'Selecione a sala…')}</select>
+          <select id="edf-cx-sala">${opcoesDestino(outrasSalas, 'Selecione a sala…')}</select>
         </div>
         <div class="form-group">
           <label for="edf-cx-estante">Estante de destino *</label>
-          <select id="edf-cx-estante" disabled><option value="">Selecione a sala…</option></select>
+          <select id="edf-cx-estante"></select>
         </div>
         <div class="form-group">
           <label for="edf-cx-prateleira">Prateleira de destino *</label>
-          <select id="edf-cx-prateleira" disabled><option value="">Selecione a estante…</option></select>
+          <select id="edf-cx-prateleira"></select>
         </div>
       </form>`, botoesModal('Transferir'));
 
+    const blocoSala = document.getElementById('cx-bloco-sala');
     const selSala = document.getElementById('edf-cx-sala');
     const selEst = document.getElementById('edf-cx-estante');
     const selPrat = document.getElementById('edf-cx-prateleira');
+    let dados = null; // { estantes, prateleiras, caixas } da sala escolhida
+    let seq = 0;      // descarta resposta de um carregamento antigo
 
-    selSala.addEventListener('change', async () => {
-      const salaId = selSala.value;
-      selEst.innerHTML = '<option value="">Selecione a estante…</option>';
-      selPrat.innerHTML = '<option value="">Selecione a prateleira…</option>';
+    const outraSala = () =>
+      (document.querySelector('input[name="cx-tipo"]:checked') || {}).value === 'outra';
+
+    /** Caixas por prateleira (n = caixas com prateleira_id). */
+    function contaPorPrat(caixas) {
+      const mapa = {};
+      (caixas || []).forEach(c => {
+        const k = c.prateleira_id ? String(c.prateleira_id) : '';
+        mapa[k] = (mapa[k] || 0) + 1;
+      });
+      return mapa;
+    }
+
+    function desenhaEstantes() {
+      selPrat.innerHTML = '<option value="">Selecione a estante…</option>';
       selPrat.disabled = true;
-      if (!salaId) { selEst.disabled = true; return; }
+      if (!dados) {
+        selEst.innerHTML = `<option value="">${outraSala() ? 'Selecione a sala…' : 'Sem dados da sala'}</option>`;
+        selEst.disabled = true;
+        return;
+      }
+      if (!dados.estantes.length) {
+        selEst.innerHTML = '<option value="">Nenhuma estante nesta sala</option>';
+        selEst.disabled = true;
+        return;
+      }
+      const comPrat = new Set((dados.prateleiras || []).map(p => String(p.estante_id)));
+      selEst.disabled = false;
+      selEst.innerHTML = '<option value="">Selecione a estante…</option>'
+        + dados.estantes.map(e => {
+          const tem = comPrat.has(String(e.id));
+          return `<option value="${U.esc(e.id)}"${tem ? '' : ' disabled'}>`
+            + `${U.esc(e.codigo)}${e.descricao ? ' — ' + U.esc(e.descricao) : ''}`
+            + `${tem ? '' : ' · sem prateleiras'}</option>`;
+        }).join('');
+    }
+
+    function desenhaPrateleiras() {
+      const estId = selEst.value;
+      const lista = (estId && dados)
+        ? dados.prateleiras.filter(p => String(p.estante_id) === String(estId)) : [];
+      if (!lista.length) {
+        selPrat.innerHTML = `<option value="">${estId ? 'Estante sem prateleiras' : 'Selecione a estante…'}</option>`;
+        selPrat.disabled = true;
+        return;
+      }
+      const conta = contaPorPrat(dados.caixas);
+      const infos = lista.map(p => {
+        const n = conta[String(p.id)] || 0;
+        const cap = Math.min(p.capacidade || MAX_CX_PRAT, MAX_CX_PRAT);
+        const atual = String(p.id) === pratAtual;
+        return { p, n, cap, atual, livre: !atual && n < cap };
+      });
+      const temLivre = infos.some(i => i.livre);
+      selPrat.disabled = !temLivre;
+      selPrat.innerHTML = `<option value="">${temLivre ? 'Selecione a prateleira…' : 'Nenhuma prateleira livre nesta estante'}</option>`
+        + infos.map(({ p, n, cap, atual, livre }) => {
+          const marca = atual ? ' · atual'
+            : (n >= cap ? ` · CHEIA (${n}/${cap})` : ` (${n}/${cap})`);
+          return `<option value="${U.esc(p.id)}"${livre ? '' : ' disabled'}>`
+            + `${U.esc(p.codigo)}${p.descricao ? ' — ' + U.esc(p.descricao) : ''}${marca}</option>`;
+        }).join('');
+    }
+
+    async function carregarOutraSala(salaId) {
+      const minhaVez = ++seq;
+      dados = null;
+      desenhaEstantes();
+      if (!salaId) return;
       selEst.disabled = false;
       selEst.innerHTML = '<option value="">Carregando…</option>';
       try {
-        const ests = await SGA_API.listTudo('estantes',
-          `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo`, 'id,codigo');
-        if (selSala.value !== salaId) return;
-        selEst.innerHTML = opcoesDestino(ests, 'Selecione a estante…');
+        const escopo = `&sala_id=eq.${encodeURIComponent(salaId)}`;
+        const [ests, prats, cxs] = await Promise.all([
+          SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`,
+            'id,codigo,descricao,capacidade'),
+          SGA_API.listTudo('prateleiras', '&order=codigo,id',
+            'id,codigo,descricao,capacidade,estante_id'),
+          SGA_API.listTudo('caixas', `${escopo}&order=codigo,id`,
+            'id,prateleira_id'),
+        ]);
+        if (minhaVez !== seq) return; // usuário já mudou de escolha
+        const ids = new Set((ests || []).map(e => String(e.id)));
+        dados = {
+          estantes: ests || [],
+          prateleiras: (prats || []).filter(p => ids.has(String(p.estante_id))),
+          caixas: cxs || [],
+        };
+        desenhaEstantes();
       } catch {
-        selEst.innerHTML = '<option value="">Erro ao carregar estantes</option>';
+        if (minhaVez !== seq) return;
+        selEst.innerHTML = '<option value="">Erro ao carregar a sala</option>';
+        selEst.disabled = true;
       }
-    });
+    }
 
-    selEst.addEventListener('change', async () => {
-      const estId = selEst.value;
-      selPrat.innerHTML = '<option value="">Selecione a prateleira…</option>';
-      if (!estId) { selPrat.disabled = true; return; }
-      selPrat.disabled = false;
-      selPrat.innerHTML = '<option value="">Carregando…</option>';
-      try {
-        const prats = await SGA_API.listTudo('prateleiras',
-          `&estante_id=eq.${encodeURIComponent(estId)}&order=codigo`, 'id,codigo');
-        if (selEst.value !== estId) return;
-        selPrat.innerHTML = opcoesDestino(prats, 'Selecione a prateleira…');
-      } catch {
-        selPrat.innerHTML = '<option value="">Erro ao carregar prateleiras</option>';
+    /**
+     * Mostra o código que a caixa VAI TER: na mesma sala ela
+     * mantém o código; em outra sala, a proximo_codigo_livre
+     * devolve o menor buraco da sequência da sala de destino
+     * (banco sem a RPC → linha vazia, a transferência funciona).
+     */
+    let seqPrev = 0;
+    async function mostraPrevCod() {
+      const alvo = document.getElementById('cx-prev-cod');
+      if (!alvo) return;
+      if (!outraSala()) {
+        alvo.textContent = `Código mantido: ${cx.codigo} `
+          + '(a caixa continua com o mesmo número nesta sala).';
+        return;
       }
+      const salaId = selSala.value;
+      if (!salaId) { alvo.textContent = ''; return; }
+      const minhaVez = ++seqPrev;
+      alvo.textContent = 'Novo código: consultando…';
+      try {
+        const cod = await SGA_API.proximoCodigoLivre('caixas', salaId);
+        if (minhaVez !== seqPrev) return;
+        alvo.textContent = cod ? `Novo código: ${cod}` : '';
+      } catch {
+        if (minhaVez !== seqPrev) return;
+        alvo.textContent = '';
+      }
+    }
+
+    /** Aplica a escolha (mesma / outra sala) nos três selects. */
+    function aplicarTipo() {
+      blocoSala.style.display = outraSala() ? '' : 'none';
+      ++seq; // invalida carregamento em andamento
+      if (outraSala()) {
+        carregarOutraSala(selSala.value);
+      } else {
+        dados = {
+          estantes: edArq.estantes || [],
+          prateleiras: edArq.prateleiras || [],
+          caixas: edArq.caixas || [],
+        };
+        desenhaEstantes();
+      }
+      mostraPrevCod();
+    }
+
+    document.querySelectorAll('input[name="cx-tipo"]')
+      .forEach(r => r.addEventListener('change', aplicarTipo));
+    selSala.addEventListener('change', () => {
+      carregarOutraSala(selSala.value);
+      mostraPrevCod();
     });
+    selEst.addEventListener('change', desenhaPrateleiras);
+
+    aplicarTipo(); // começa na MESMA sala, com as opções já prontas
 
     ligaBotoesModal('Transferir', async () => {
-      const salaId = selSala.value;
+      const mesma = !outraSala();
+      const salaId = mesma ? salaAtual.id : selSala.value;
       const estId = selEst.value;
       const pratId = selPrat.value;
-      if (!salaId) { U.toast('Selecione a sala de destino.', 'warning'); return; }
+      if (!mesma && !salaId) { U.toast('Selecione a sala de destino.', 'warning'); return; }
       if (!estId) { U.toast('Selecione a estante de destino.', 'warning'); return; }
       if (!pratId) { U.toast('Selecione a prateleira de destino.', 'warning'); return; }
+      if (String(pratId) === pratAtual) {
+        U.toast('A caixa já está nesta prateleira.', 'warning');
+        return;
+      }
+
+      // Ocupação relida AGORA: o select pode estar desatualizado
+      // (outra aba/pessoa pode ter incluído caixa na prateleira).
+      const [pratRow, nestaPrat] = await Promise.all([
+        SGA_API.listTudo('prateleiras', `&id=eq.${encodeURIComponent(pratId)}`,
+          'codigo,capacidade'),
+        SGA_API.listTudo('caixas',
+          `&prateleira_id=eq.${encodeURIComponent(pratId)}`, 'id'),
+      ]);
+      const pratNovo = (pratRow || [])[0] || {};
+      const cap = Math.min(pratNovo.capacidade || MAX_CX_PRAT, MAX_CX_PRAT);
+      const n = (nestaPrat || []).length;
+      if (n >= cap) {
+        U.toast(`A prateleira ${pratNovo.codigo || ''} já está com ${n}/${cap} caixas `
+          + '(máximo). Escolha outra prateleira.', 'warning');
+        return;
+      }
+
       const r = await SGA_API.transferirCaixa(cx.id, salaId, estId, pratId);
       Modal.close();
-      U.toast(`Caixa ${r.codigo_anterior} → ${r.codigo_novo} `
-        + `(${r.documentos} documento(s) junto).`, 'success');
+      if (mesma) {
+        U.toast(`Caixa ${r.codigo_novo} movida para ${pratNovo.codigo} `
+          + `(${salaAtual.codigo}) — ${r.documentos} documento(s) junto(s).`, 'success');
+      } else {
+        U.toast(`Caixa ${r.codigo_anterior} → ${r.codigo_novo} `
+          + `(${r.documentos} documento(s) junto).`, 'success');
+      }
       loadLocalSelects();
       await carregarEstruturaSala();
     });

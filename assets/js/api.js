@@ -405,6 +405,24 @@ const SGA_API = (() => {
   }
 
   /**
+   * Próximo código LIVRE — só exibição, NÃO consome a sequência.
+   * Antes de pular para o fim da fila devolve o menor buraco da
+   * sequência daquele escopo (sql/18, proximo_codigo_livre).
+   * Banco sem essa RPC: devolve null e quem chamou mostra nada.
+   */
+  async function proximoCodigoLivre(chave, escopo) {
+    try {
+      const body = { p_chave: chave };
+      const escopoTxt = montaEscopo(escopo);
+      if (escopoTxt) body.p_escopo = escopoTxt;
+      const r = await request('POST', '/rest/v1/rpc/proximo_codigo_livre', body);
+      return r && RE_CODIGO_AUTO.test(String(r)) ? String(r) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Gera uma sala de arquivo COMPLETA (estantes, prateleiras e
    * caixas — SEM corredores) em uma unica transacao — aba "Gerar
    * Sala de Arquivo". Os codigos vem da MESMA funcao
@@ -802,6 +820,7 @@ const SGA_API = (() => {
     proximoProtocolo,
     gerarCodigo,
     proximoCodigo,
+    proximoCodigoLivre,
     gerarSalaArquivo,
     removerEstante,
     removerPrateleira,
