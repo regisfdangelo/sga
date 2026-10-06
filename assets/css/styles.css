@@ -1101,6 +1101,8 @@ a { color: var(--primary); }
 }
 .ed-caixa-cod { font-weight: 600; }
 .ed-caixa-cap { color: var(--text-muted); font-size: .71rem; }
+/* Caixa no limite de pastas (n/cap >= 1) — destaca o contador */
+.ed-caixa-cap.cheia { color: var(--danger); font-weight: 700; }
 .ed-caixa .ed-acoes { margin-left: 0; gap: .15rem; }
 
 /* Sala sem estantes ainda */

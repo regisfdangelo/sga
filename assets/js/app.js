@@ -1353,6 +1353,8 @@
           <div class="table-actions">
             <button class="btn btn-sm btn-ghost" data-view="${U.esc(d.id)}">Detalhes</button>
             <button class="btn btn-sm btn-ghost" data-editar="${U.esc(d.id)}">Editar</button>
+            <button class="btn btn-sm btn-ghost" data-transferir="${U.esc(d.id)}"
+              ${d.status === 'descartado' ? 'disabled title="Documento descartado"' : ''}>Transferir</button>
           </div>
         </td>
       </tr>`).join('');
@@ -1369,6 +1371,10 @@
         const doc = docs.find(x => x.id === btn.dataset.editar);
         if (doc) abrirEdicaoDocumento(doc);
       });
+    });
+
+    tbody.querySelectorAll('[data-transferir]').forEach(btn => {
+      btn.addEventListener('click', () => abrirTransferirPasta({ docId: btn.dataset.transferir }));
     });
 
     renderPaginacao(totalPaginas);
@@ -1439,13 +1445,20 @@
 
     // "Excluir" somente para administradores
     const isAdmin = (SGA_API.getStoredUser() || {}).perfil === 'admin';
-    const footer = isAdmin
-      ? '<button class="btn btn-danger" id="btn-excluir-doc">Excluir</button>'
-        + '<button class="btn btn-ghost" id="modal-btn-close">Fechar</button>'
-      : undefined; // rodapé padrão (apenas Fechar)
+    const descartado = d.status === 'descartado';
+    const footer = '<button class="btn btn-primary" id="btn-transferir-doc"'
+      + `${descartado ? ' disabled title="Documento descartado"' : ''}>Transferir</button>`
+      + (isAdmin
+        ? '<button class="btn btn-danger" id="btn-excluir-doc">Excluir</button>'
+        : '')
+      + '<button class="btn btn-ghost" id="modal-btn-close">Fechar</button>';
 
     Modal.open(`Documento ${d.protocolo}`, `<dl>${html}</dl>`, footer);
 
+    const btnTransferir = document.getElementById('btn-transferir-doc');
+    if (btnTransferir && !descartado) {
+      btnTransferir.addEventListener('click', () => abrirTransferirPasta({ docId: d.id }));
+    }
     const btnExcluir = document.getElementById('btn-excluir-doc');
     if (btnExcluir) btnExcluir.addEventListener('click', () => excluirDocumento(d));
   }
@@ -1483,17 +1496,33 @@
     const opsSetor = elSetor ? elSetor.innerHTML : '';
     const opsCategoria = elCategoria ? elCategoria.innerHTML : '';
 
-    let caixas = [];
-    try {
-      caixas = await SGA_API.listTudo('caixas', '&order=codigo',
-        'id,codigo,descricao,sala:salas(codigo),prateleira:prateleiras(codigo)');
-    } catch { /* mantém lista vazia */ }
+    const [caixas, conta] = await Promise.all([
+      carregarCaixasCompletas(),
+      contarDocumentosPorCaixa(),
+    ]);
+    if (!caixas) {
+      U.toast('Erro ao carregar as caixas. Tente novamente.', 'error');
+      return;
+    }
     // o codigo da caixa e unico DENTRO da sala, mas se repete em
-    // outra sala: sala + prateleira desambiguam a opcao
+    // outra sala: sala + prateleira desambiguam a opcao.
+    // Caixa sem vaga fica desabilitada (a pasta dela não cabe mais);
+    // a caixa ATUAL do documento continua selecionável para quem
+    // só quer editar os outros campos sem mover a pasta.
+    const caixaAtual = String(d.caixa_id || '');
     const opsCaixa = (caixas || [])
       .map(c => {
         const loc = [c.sala?.codigo, c.prateleira?.codigo].filter(Boolean).join(' / ');
-        return `<option value="${U.esc(c.id)}">${U.esc(c.codigo)}${loc ? ' (' + U.esc(loc) + ')' : ''}${c.descricao ? ' — ' + U.esc(c.descricao) : ''}</option>`;
+        const cap = capacidadeDaCaixa(c);
+        const ocup = conta[c.id] || 0;
+        const cheia = ocup >= cap;
+        const ehAtual = String(c.id) === caixaAtual;
+        const marca = cheia
+          ? (ehAtual ? ` (${ocup}/${cap}) · atual` : ` (${ocup}/${cap}) · CHEIA`)
+          : ` (${ocup}/${cap})`;
+        const rotulo = `${c.codigo}${loc ? ' (' + loc + ')' : ''}`
+          + `${c.descricao ? ' — ' + c.descricao : ''}${marca}`;
+        return `<option value="${U.esc(c.id)}"${cheia && !ehAtual ? ' disabled' : ''}>${U.esc(rotulo)}</option>`;
       })
       .join('');
 
@@ -1578,6 +1607,21 @@
       if (!dataDoc) { U.setError('ed-data', 'Informe a data do documento.'); ok = false; }
       if (!prazo) { U.setError('ed-prazo', 'Informe o prazo de guarda.'); ok = false; }
       if (!caixa) { U.setError('ed-caixa', 'Selecione a caixa/localização.'); ok = false; }
+      // Limite de pastas por caixa: só confere quando a pasta MUDA de
+      // caixa (manter a atual nunca é bloqueado). A leitura é feita
+      // AGORA, porque a ocupação pode ter mudado desde a abertura.
+      if (ok && String(caixa) !== String(d.caixa_id || '')) {
+        const o = await ocupacaoDaCaixa(caixa);
+        if (!o) {
+          U.setError('ed-caixa', 'Não foi possível conferir a ocupação da caixa '
+            + 'selecionada. Tente novamente.');
+          ok = false;
+        } else if (o.ocup >= o.cap) {
+          U.setError('ed-caixa', `A caixa ${o.codigo} já está com ${o.ocup}/${o.cap} pastas `
+            + `(máximo). Escolha outra caixa.`);
+          ok = false;
+        }
+      }
       if (!ok) return;
 
       const btn = document.getElementById('btn-salvar-edicao');
@@ -1736,7 +1780,7 @@
       const categoria = document.getElementById('doc-categoria').value;
       const dataDoc = document.getElementById('doc-data').value;
       const prazo = document.getElementById('doc-prazo').value;
-      const caixa = document.getElementById('doc-caixa').value;
+      let caixa = document.getElementById('doc-caixa').value;
       const salaDoc = document.getElementById('doc-sala').value;
       const observacoes = document.getElementById('doc-observacoes').value.trim();
 
@@ -1748,6 +1792,27 @@
       if (!prazo) { U.setError('doc-prazo', 'Informe o prazo de guarda.'); ok = false; }
       if (!salaDoc) { U.setError('doc-sala', 'Selecione a sala.'); ok = false; }
       else if (!caixa) { U.setError('doc-sala', 'Nenhuma caixa livre nesta sala.'); ok = false; }
+
+      // Limite de pastas por caixa: a caixa alocada na abertura pode
+      // ter encheido nesse meio tempo (outra aba/usuário). Revalida
+      // AGORA e, se estiver cheia, realoca a próxima caixa livre.
+      if (ok && caixa) {
+        const o = await ocupacaoDaCaixa(caixa);
+        if (!o) {
+          U.setError('doc-sala', 'Não foi possível conferir a ocupação da caixa. Tente novamente.');
+          ok = false;
+        } else if (o.ocup >= o.cap) {
+          await alocarCaixaPorSala();
+          const outra = document.getElementById('doc-caixa').value;
+          if (!outra || String(outra) === String(caixa)) {
+            U.setError('doc-sala', `Nenhuma caixa livre nesta sala (a ${o.codigo} `
+              + `já está com ${o.ocup}/${o.cap} pastas).`);
+            ok = false;
+          } else {
+            caixa = outra;
+          }
+        }
+      }
       if (!ok) return;
 
       const btn = document.getElementById('btn-salvar-doc');
@@ -1925,6 +1990,7 @@
       if (d.acao === 'add-prat') incluirPrateleira(d.est);
       else if (d.acao === 'add-cx') incluirCaixa(d.prat);
       else if (d.acao === 'mover-est') transferirEstante(d.est);
+      else if (d.acao === 'mover-pasta') abrirTransferirPasta({ caixaOrigemId: d.cx });
       else if (d.acao === 'mover-cx') transferirCaixa(d.cx);
       else if (d.acao === 'rm-est') removerEstante(d.est);
       else if (d.acao === 'rm-prat') removerPrateleira(d.prat);
@@ -2154,11 +2220,14 @@
         nCxVista += cxs.length;
         const htmlCx = cxs.map(c => {
           const n = edArq.docs[c.id] || 0;
-          const cap = c.capacidade || MAX_CAP_CAIXA;
+          const cap = capacidadeDaCaixa(c);
+          const cheia = n >= cap;
           return `<span class="ed-caixa" title="${U.esc(c.descricao || c.codigo)}">`
             + `<span class="ed-caixa-cod">${U.esc(c.codigo)}</span>`
-            + `<span class="ed-caixa-cap">${n}/${cap}</span>`
+            + `<span class="ed-caixa-cap${cheia ? ' cheia' : ''}">${n}/${cap}</span>`
             + `<span class="ed-acoes">`
+            + `<button class="btn btn-ghost btn-icone" data-acao="mover-pasta" data-cx="${U.esc(c.id)}"`
+            + `${n > 0 ? '' : ' disabled'} title="Transferir pasta">↪</button>`
             + `<button class="btn btn-ghost btn-icone" data-acao="mover-cx" data-cx="${U.esc(c.id)}"`
             + ` title="Transferir caixa">⇄</button>`
             + `<button class="btn btn-ghost btn-icone" data-acao="rm-cx" data-cx="${U.esc(c.id)}"`
@@ -2596,6 +2665,158 @@
     });
   }
 
+  /**
+   * Modal de TRANSFERÊNCIA de PASTA (documento) de uma caixa para
+   * outra. Dois caminhos de entrada:
+   *   - árvore do Editar Arquivo (caixaOrigemId): o usuário escolhe
+   *     QUAL pasta daquela caixa mover e para onde;
+   *   - aba Pesquisa (docId): a pasta é a da linha e só falta o
+   *     destino (a origem vem de documents.caixa_id).
+   *
+   * REGRA: caixa de destino já no máximo de pastas (capacidade,
+   * padrão MAX_CAP_CAIXA = 5) aparece desabilitada como "CHEIA",
+   * e a ocupação é RELIDA do banco na hora de confirmar — com o
+   * modal aberto outra pessoa/aba pode ter encheu a caixa.
+   */
+  async function abrirTransferirPasta({ docId = null, caixaOrigemId = null } = {}) {
+    const [caixas, conta] = await Promise.all([
+      carregarCaixasCompletas(),
+      contarDocumentosPorCaixa(),
+    ]);
+    if (!caixas) {
+      U.toast('Erro ao carregar as caixas. Tente novamente.', 'error');
+      return;
+    }
+    if (!caixas.length) { U.toast('Nenhuma caixa cadastrada.', 'warning'); return; }
+
+    // Pastas candidatas: as da caixa de origem, ou só a da linha.
+    let docs = [];
+    try {
+      if (docId) {
+        docs = await SGA_API.listTudo('documentos',
+          `&id=eq.${encodeURIComponent(docId)}`, 'id,protocolo,descricao,status,caixa_id');
+      } else if (caixaOrigemId) {
+        docs = await SGA_API.listTudo('documentos',
+          `&caixa_id=eq.${encodeURIComponent(caixaOrigemId)}&order=protocolo`,
+          'id,protocolo,descricao,status,caixa_id');
+      }
+    } catch (err) {
+      U.toast(`Erro ao carregar as pastas: ${err.message}`, 'error');
+      return;
+    }
+    // Descartado não está mais no acervo: não se move.
+    docs = (docs || []).filter(x => x.status !== 'descartado');
+    if (!docs.length) {
+      U.toast(caixaOrigemId && !docId
+        ? 'Esta caixa não tem pastas para transferir.'
+        : 'Este documento não tem pasta a transferir.', 'warning');
+      return;
+    }
+
+    const origemId = docs[0].caixa_id || '';
+    const origem = caixas.find(c => String(c.id) === String(origemId)) || null;
+
+    // Sem nenhuma caixa com vaga não há o que escolher: avisa e
+    // nem abre o modal (todas apareceriam desabilitadas).
+    const algumaComVaga = caixas.some(c => String(c.id) !== String(origemId)
+      && (conta[c.id] || 0) < capacidadeDaCaixa(c));
+    if (!algumaComVaga) {
+      U.toast('Nenhuma caixa com vaga: todas estão no máximo de pastas.', 'warning');
+      return;
+    }
+
+    const local = c => [c.sala?.codigo, c.estante?.codigo, c.prateleira?.codigo]
+      .filter(Boolean).join(' / ');
+
+    /** Rótulo da caixa com a ocupação: CX-000001 (SL-001 / P-0001) — 3/5 */
+    const rotuloCx = (c, comSituacao = true) => {
+      const cap = capacidadeDaCaixa(c);
+      const ocup = conta[c.id] || 0;
+      const loc = local(c);
+      const sit = !comSituacao ? ''
+        : (ocup >= cap ? ` — CHEIA (${ocup}/${cap})` : ` (${ocup}/${cap})`);
+      return `${c.codigo}${loc ? ' (' + loc + ')' : ''}`
+        + `${c.descricao ? ' — ' + c.descricao : ''}${sit}`;
+    };
+
+    const opsDocs = docs.map(x =>
+      `<option value="${U.esc(x.id)}">${U.esc(`${x.protocolo} — ${x.descricao}`)}</option>`).join('');
+
+    const opsDestino = caixas.map(c => {
+      const cap = capacidadeDaCaixa(c);
+      const ocup = conta[c.id] || 0;
+      const naOrigem = String(c.id) === String(origemId);
+      const cheia = ocup >= cap;
+      const marcador = naOrigem ? ' · origem' : '';
+      return `<option value="${U.esc(c.id)}"${naOrigem || cheia ? ' disabled' : ''}>`
+        + `${U.esc(rotuloCx(c))}${U.esc(marcador)}</option>`;
+    }).join('');
+
+    const origemTxt = origem
+      ? `${rotuloCx(origem, false)} — ${conta[origem.id] || 0}/${capacidadeDaCaixa(origem)} pastas`
+      : 'Sem caixa (pasta ainda não localizada)';
+
+    Modal.open(origem ? `Transferir pasta — ${origem.codigo}` : 'Transferir pasta', `
+      <form id="form-transferir-pasta" class="form-stack" onsubmit="return false" novalidate>
+        <p class="ed-aviso">Move a pasta para outra caixa. A caixa de destino já cheia
+          (ocupação igual à capacidade, padrão ${MAX_CAP_CAIXA} pastas) aparece
+          bloqueada e não pode ser escolhida.</p>
+        <div class="form-group">
+          <label for="tp-origem">Caixa de origem</label>
+          <input type="text" id="tp-origem" value="${U.esc(origemTxt)}" readonly>
+        </div>
+        <div class="form-group">
+          <label for="tp-doc">Pasta (documento) *</label>
+          <select id="tp-doc">${opsDocs}</select>
+          <span class="field-error" id="error-tp-doc" role="alert"></span>
+        </div>
+        <div class="form-group">
+          <label for="tp-destino">Caixa de destino *</label>
+          <select id="tp-destino"><option value="">Selecione a caixa…</option>${opsDestino}</select>
+          <span class="field-error" id="error-tp-destino" role="alert"></span>
+        </div>
+      </form>`, botoesModal('Transferir'));
+
+    ligaBotoesModal('Transferir', async () => {
+      const form = document.getElementById('form-transferir-pasta');
+      U.clearErrors(form);
+      const pasta = document.getElementById('tp-doc').value;
+      const destino = document.getElementById('tp-destino').value;
+      let ok = true;
+      if (!pasta) { U.setError('tp-doc', 'Selecione a pasta.'); ok = false; }
+      if (!destino) { U.setError('tp-destino', 'Selecione a caixa de destino.'); ok = false; }
+      else if (String(destino) === String(origemId)) {
+        U.setError('tp-destino', 'A pasta já está nesta caixa.');
+        ok = false;
+      }
+      if (!ok) return;
+
+      // Ocupação relida AGORA: o select pode estar desatualizado.
+      const o = await ocupacaoDaCaixa(destino);
+      if (!o) {
+        U.setError('tp-destino', 'Não foi possível conferir a ocupação da caixa '
+          + 'de destino. Tente novamente.');
+        return;
+      }
+      if (o.ocup >= o.cap) {
+        U.setError('tp-destino', `A caixa ${o.codigo} já está com ${o.ocup}/${o.cap} `
+          + 'pastas (máximo). Escolha outra caixa.');
+        return;
+      }
+
+      await SGA_API.update('documentos', pasta, { caixa_id: destino });
+      Modal.close();
+      U.toast(`Pasta transferida para ${o.codigo} — ${o.ocup + 1}/${o.cap} pastas.`, 'success');
+      atualizaAposMovimentacao();
+    });
+  }
+
+  /** Repinta a árvore do Editar Arquivo e os resultados da Pesquisa. */
+  function atualizaAposMovimentacao() {
+    if (edArq.salaId) carregarEstruturaSala();
+    if (docsPesquisa.length) refazerPesquisa();
+  }
+
   /** Documentos guardados nas caixas de um nível da árvore. */
   function docsDo(caixas) {
     return (caixas || []).reduce((soma, c) => soma + (edArq.docs[c.id] || 0), 0);
@@ -2690,19 +2911,15 @@
         'caixas', `&sala_id=eq.${encodeURIComponent(salaId)}&order=codigo`,
         'id,codigo,capacidade,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)');
       const conta = await contarDocumentosPorCaixa();
-      const livre = (caixas || []).find(c => {
-        const cap = c.capacidade === null || c.capacidade === ''
-          ? Infinity : Number(c.capacidade);
-        return (conta[c.id] || 0) < cap;
-      });
+      const livre = (caixas || []).find(c =>
+        (conta[c.id] || 0) < capacidadeDaCaixa(c));
       if (!livre) {
         if (info) info.textContent = 'Nenhuma caixa livre nesta sala.';
         return;
       }
       hid.value = livre.id;
       const ocup = conta[livre.id] || 0;
-      const cap = livre.capacidade === null || livre.capacidade === ''
-        ? '—' : Number(livre.capacidade);
+      const cap = capacidadeDaCaixa(livre);
       if (info) info.textContent = `Caixa alocada: ${U.locLabel(livre)} — ${ocup}/${cap} pastas`;
     } catch (err) {
       if (info) info.textContent = 'Erro ao alocar a caixa.';
@@ -2721,6 +2938,61 @@
       return conta;
     } catch {
       return {};
+    }
+  }
+
+  /**
+   * Capacidade de uma caixa em nº de pastas. Capacidade vazia/zero
+   * cai no padrão (MAX_CAP_CAIXA) — mesma regra da árvore do
+   * Editar Arquivo, que já exibe "n/5".
+   */
+  function capacidadeDaCaixa(cx) {
+    const n = Number(cx && cx.capacidade);
+    return n > 0 ? n : MAX_CAP_CAIXA;
+  }
+
+  /**
+   * Carrega TODAS as caixas. A primeira tentativa traz o endereço
+   * completo (sala/estante/prateleira); se essa consulta falhar,
+   * cai para colunas mínimas — a lista de caixas é o que importa
+   * num modal de transferência, e local incompleto é melhor que
+   * select vazio ("sistema não permite transferir").
+   * Devolve [] quando não há caixas e null quando nada funcionou.
+   */
+  async function carregarCaixasCompletas() {
+    const tentativas = [
+      'id,codigo,descricao,capacidade,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)',
+      'id,codigo,descricao,capacidade',
+      'id,codigo',
+    ];
+    for (const cols of tentativas) {
+      try {
+        return await SGA_API.listTudo('caixas', '&order=codigo', cols);
+      } catch { /* tenta a consulta mais simples */ }
+    }
+    return null;
+  }
+
+  /**
+   * Ocupação ATUAL de uma caixa, lida do banco no momento da
+   * conferência (não usa o valor cacheado da abertura da tela).
+   * Devolve { codigo, cap, ocup } ou null quando a caixa não existe
+   * ou a leitura falhou — nesse caso quem chama deve BLOQUEAR a
+   * movimentação (fechar a falha é melhor que deixar passar).
+   */
+  async function ocupacaoDaCaixa(caixaId) {
+    try {
+      const id = String(caixaId);
+      const filtro = `&caixa_id=eq.${encodeURIComponent(id)}`;
+      const [cxs, docs] = await Promise.all([
+        SGA_API.listTudo('caixas', `&id=eq.${encodeURIComponent(id)}`, 'id,codigo,capacidade'),
+        SGA_API.listTudo('documentos', filtro, 'id'),
+      ]);
+      const cx = (cxs || [])[0];
+      if (!cx) return null;
+      return { codigo: cx.codigo, cap: capacidadeDaCaixa(cx), ocup: (docs || []).length };
+    } catch {
+      return null;
     }
   }
 
