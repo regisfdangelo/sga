@@ -1103,7 +1103,7 @@
           SGA_API.listTudo('estantes', `${escopo}&order=codigo,id`, 'id,codigo,descricao')),
         SGA_API.listTudo('caixas', `${escopo}&order=codigo,id`,
           'id,codigo,descricao,capacidade,estante_id'),
-        contarDocumentosPorCaixa(),
+        resumoPastasPorCaixa(),
       ]);
       if (minhaVez !== mapaSeq) return; // outra seleção já assumiu
       desenharMapa(estantes || [], caixas || [], conta || {}, gradeDaSala(salaId));
@@ -1119,10 +1119,13 @@
    * PLANTA DO ARQUIVO: grade única da sala — um QUADRADO por
    * ESTANTE, com a descrição da estante na extremidade de FORA
    * do quadrado e, dentro, a grade uniforme de todas as caixas
-   * da estante (só a cor — verde vazia, laranja parcial, cinza
-   * cheia; descrição da caixa no tooltip do mouse). O resultado
-   * é medido e reduzido (scale) por encaixaMapa() para caber
-   * no pop-up, sem barra de rolagem.
+   * da estante (cor por ocupação E por descarte, ver regras em
+   * quadradinho(); descrição da caixa no tooltip do mouse). O
+   * resultado é medido e reduzido (scale) por encaixaMapa() para
+   * caber no pop-up, sem barra de rolagem.
+   *
+   * `conta` = { total, descarte } de resumoPastasPorCaixa():
+   * pastas ativas e destas quantas estão para descarte.
    *
    * `grade` (linhas x colunas da sala, quando cadastrada) comanda
    * a POSIÇÃO de cada estante na planta: a estante j nasce na
@@ -1172,13 +1175,28 @@
     semEstante.sort(cmp);
 
     // docsSala/capSala somam TODA a sala (incluindo as caixas sem
-    // estante): docsSala = documentos arquivados; capSala = pastas
-    // que as caixas da sala comportam (caixa.capacidade). O "% de
-    // ocupação" da barra sai da razão entre os dois.
-    let vazias = 0, parciais = 0, cheias = 0, docsSala = 0, capSala = 0;
+    // estante): docsSala = pastas ativas arquivadas (descartadas
+    // não contam); capSala = pastas que as caixas da sala
+    // comportam (caixa.capacidade). O "% de ocupação" da barra
+    // sai da razão entre os dois.
+    let vazias = 0, parciais = 0, cheias = 0, mistas = 0, todasDescarte = 0;
+    let docsSala = 0, capSala = 0;
 
+    /**
+     * Cor da caixa (quatro estados + marca de descarte):
+     *   vazia            = nenhuma pasta ativa        -> verde
+     *   parcial          = ocupação parcial, sem descarte -> laranja
+     *   cheia            = 100%, sem descarte         -> cinza claro
+     *   descarte         = TODAS as pastas p/ descarte -> vermelha
+     *                      (sem marca: a caixa já é o sinal)
+     *   misto            = cheia com ativa E descarte  -> degradê
+     *                      cinza claro/verde/vermelho
+     * E, havendo ALGUMA pasta para descarte (não todas), a marca
+     * de confirmação ✓ vermelho no centro (.tem-descarte).
+     */
     const quadradinho = c => {
-      const docs = conta[c.id] || 0;
+      const docs = (conta.total && conta.total[c.id]) || 0;
+      const desc = Math.min(docs, (conta.descarte && conta.descarte[c.id]) || 0);
       const cap = vazio(c.capacidade) ? null : Number(c.capacidade);
       let pct = null;
       if (cap) {
@@ -1186,13 +1204,27 @@
         capSala += cap;
       }
       docsSala += docs;
-      const classe = (pct === 0 || (pct === null && docs === 0)) ? 'vazio'
+      let classe = (pct === 0 || (pct === null && docs === 0)) ? 'vazio'
         : (pct !== null && pct >= 100 ? 'cheia' : 'parcial');
+      let marca = false;
+      if (docs > 0 && desc === docs) {
+        classe = 'descarte';
+      } else if (desc > 0) {
+        marca = true;
+        if (classe === 'cheia') classe = 'misto';
+      }
       if (classe === 'vazio') vazias++;
+      else if (classe === 'parcial') parciais++;
       else if (classe === 'cheia') cheias++;
-      else parciais++;
-      const titulo = c.descricao || c.codigo || '—';
-      return `<div class="mapa-quad ${classe}" title="${U.esc(titulo)}"></div>`;
+      else if (classe === 'misto') mistas++;
+      else todasDescarte++;
+      const nome = c.descricao || c.codigo || '—';
+      const ocup = cap ? `${docs}/${cap}` : `${docs}`;
+      const titulo = docs
+        ? `${nome} — ${ocup} pastas${desc ? ` · ${desc} para descarte` : ''}`
+        : nome;
+      return `<div class="mapa-quad ${classe}${marca ? ' tem-descarte' : ''}"` +
+        ` title="${U.esc(titulo)}"></div>`;
     };
 
     /**
@@ -1331,7 +1363,8 @@
     const ocupacao = capSala > 0 ? Math.round((docsSala / capSala) * 100) : null;
     resumo.textContent =
       `${estantes.length} estante · ${caixas.length} caixa · ${vazias} vazia · ` +
-      `${parciais} parcial · ${cheias} cheia` +
+      `${parciais} parcial · ${cheias} cheia · ${mistas} mista · ` +
+      `${todasDescarte} toda para descarte` +
       (ocupacao !== null ? ` · ${ocupacao}% de ocupação` : '');
     resumo.hidden = false;
     encaixaMapa();
@@ -3293,6 +3326,33 @@
       return conta;
     } catch {
       return {};
+    }
+  }
+
+  /**
+   * Pastas por caixa para o MAPA do arquivo: { total, descarte }.
+   *   total    = pastas que ocupam a caixa (NÃO descartadas);
+   *   descarte = dessas, com prazo de guarda vencido — o mesmo
+   *              critério do card "Para Descarte" do Painel.
+   * É a base das cores novas do mapa (caixa toda para descarte
+   * em vermelho e ✗ vermelho nas mistas). Só o mapa usa isto:
+   * as demais telas continuam com contarDocumentosPorCaixa().
+   */
+  async function resumoPastasPorCaixa() {
+    try {
+      const hoje = new Date().toISOString().slice(0, 10);
+      const docs = await SGA_API.listTudo('documentos', '', 'caixa_id,status,prazo_guarda');
+      const total = {}, descarte = {};
+      (docs || []).forEach(d => {
+        if (!d.caixa_id || d.status === 'descartado') return;
+        total[d.caixa_id] = (total[d.caixa_id] || 0) + 1;
+        if (d.prazo_guarda && d.prazo_guarda <= hoje) {
+          descarte[d.caixa_id] = (descarte[d.caixa_id] || 0) + 1;
+        }
+      });
+      return { total, descarte };
+    } catch {
+      return { total: {}, descarte: {} };
     }
   }
 

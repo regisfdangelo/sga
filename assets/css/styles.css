@@ -1016,7 +1016,33 @@ a { color: var(--primary); }
 }
 .mapa-quad.vazio   { background: #22c55e; }
 .mapa-quad.parcial { background: #f97316; }
-.mapa-quad.cheia   { background: #6b7280; }
+.mapa-quad.cheia   { background: #94a3b8; }   /* cinza claro */
+/* Caixa cujas pastas JÁ são todas para descarte: vermelha.
+   Não leva a marca ✓ — a cor já é o sinal. */
+.mapa-quad.descarte { background: #dc2626; }
+/* Caixa cheia com pastas ATIVAS e para descarte: degradê
+   cinza claro -> verde -> vermelho (ordem pedida). */
+.mapa-quad.misto {
+  background: linear-gradient(135deg, #94a3b8 0%, #22c55e 50%, #dc2626 100%);
+}
+/* Marca de confirmação: caixa com ALGUMA pasta para descarte
+   (não todas) ganha o ✓ vermelho centralizado; halo branco p/
+   continuar legível sobre laranja, cinza e o degradê. */
+.mapa-quad.tem-descarte { position: relative; }
+.mapa-quad.tem-descarte::after {
+  content: '\2713';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--mapa-quad-lado, 26px) * .62);
+  font-weight: 900;
+  line-height: 1;
+  color: #dc2626;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
+  pointer-events: none;
+}
 
 .mapa-resumo {
   margin-top: .85rem;
