@@ -50,7 +50,8 @@ body {
 
 img, svg { display: block; max-width: 100%; }
 button { font-family: inherit; cursor: pointer; }
-input, select, textarea { font-family: inherit; font-size: 1rem; }
+/* Padrão do sistema (mesma fonte dos campos da barra de Pesquisa) */
+input, select, textarea { font-family: inherit; font-size: .8rem; }
 a { color: var(--primary); }
 
 /* ============================================================
@@ -131,12 +132,15 @@ a { color: var(--primary); }
 .btn-eye svg { width: 20px; height: 20px; }
 
 /* ============================================================
-   FORMULÁRIOS
+   FORMULÁRIOS — campos padronizados em TODO o sistema, na
+   medida da barra de Pesquisa: rótulo .76rem, campo .8rem com
+   padding .3rem .4rem e gap .15rem entre rótulo e campo.
    ============================================================ */
-.form-group { display: flex; flex-direction: column; gap: .35rem; }
+.form-group { display: flex; flex-direction: column; gap: .15rem; }
 
 .form-group label {
-  font-size: .85rem;
+  font-size: .76rem;
+  line-height: 1.3;
   font-weight: 600;
   color: #334155;
 }
@@ -145,7 +149,8 @@ a { color: var(--primary); }
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: .65rem .8rem;
+  padding: .3rem .4rem;
+  font-size: .8rem;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   background: #fff;
@@ -192,7 +197,7 @@ a { color: var(--primary); }
   align-items: center;
   gap: .5rem;
   font-weight: 500 !important;
-  font-size: .9rem !important;
+  font-size: .76rem !important;
   color: var(--text-muted) !important;
   cursor: pointer;
 }
@@ -1219,17 +1224,9 @@ a { color: var(--primary); }
   color: var(--text-muted);
 }
 
-/* Abas da seção Cadastro um pouco mais baixas (ganho vertical) */
+/* Aba da seção Cadastro um pouco mais baixa (ganho vertical) */
 #section-cadastro .tabs { margin-bottom: .9rem; }
 
-/* Texto e campos reduzidos */
-#tab-local .form-group { gap: .15rem; }
-#tab-local .form-group label { font-size: .75rem; }
-#tab-local .form-group input,
-#tab-local .form-group select {
-  padding: .4rem .55rem;
-  font-size: .85rem;
-}
 /* Campo de código/posição gerado pelo sistema (somente leitura):
    fundo cinza claro, sem cursor de edição. Vale para a aba Editar
    Arquivo e também para os campos dentro dos modais de inclusão. */
@@ -1245,13 +1242,13 @@ a { color: var(--primary); }
 #modal-body .form-stack select,
 #modal-body .form-stack input { width: 100%; }
 
-/* Campos dos modais na tipografia padrão de UI: herdam o 1rem (15px),
-   maior que o resto do app (.85-.88rem) — a lista nativa do <select>
-   (pop-up de transferência) também saía maior que o padrão. */
+/* Campos dos modais na MESMA fonte padrão do sistema (.8rem):
+   sem isso eles herdavam 1rem e a lista nativa do <select>
+   (pop-up de transferência) saía maior que o resto do app. */
 #modal-body input,
 #modal-body select,
-#modal-body textarea { font-size: .88rem; }
-#modal-body select option { font-size: .88rem; }
+#modal-body textarea { font-size: .8rem; }
+#modal-body select option { font-size: .8rem; }
 
 #modal-body .ed-aviso { margin-top: .2rem; }
 
@@ -1483,13 +1480,14 @@ td.cell-local { white-space: nowrap; }
   flex: 0 0 auto;
   gap: .5rem;
 }
-#section-pesquisa .form-group { gap: .15rem; }
-#section-pesquisa .form-group label { font-size: .76rem; line-height: 1.3; }
-#section-pesquisa .form-group input,
-#section-pesquisa .form-group select { padding: .3rem .4rem; font-size: .8rem; min-width: 0; }
-/* Datas em fonte menor: o campo fica estreito na linha única e o
-   "dd/mm/aaaa" + ícone precisa caber sem cortar o último dígito. */
-#section-pesquisa .filters-row input[type="date"] {
+/* Campos da linha única precisam encolher junto sem estourar
+   (tamanho e fonte já vêm do padrão global dos formulários). */
+#section-pesquisa .filters-row input,
+#section-pesquisa .filters-row select { min-width: 0; }
+/* Data: fonte .74rem em TODO o sistema — o "dd/mm/aaaa" + ícone
+   precisam caber sem cortar o último dígito. */
+.form-group input[type="date"],
+#modal-body input[type="date"] {
   font-size: .74rem;
   padding-right: .25rem;
 }
