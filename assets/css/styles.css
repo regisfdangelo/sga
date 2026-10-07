@@ -236,10 +236,10 @@ a { color: var(--primary); }
   align-items: center;
   justify-content: center;
   gap: .5rem;
-  padding: .65rem 1.3rem;
+  padding: .32rem .75rem;
   border: 1.5px solid transparent;
   border-radius: var(--radius-sm);
-  font-size: .95rem;
+  font-size: .78rem;
   font-weight: 600;
   transition: all var(--transition);
   position: relative;
@@ -267,7 +267,7 @@ a { color: var(--primary); }
 .btn-success { background: var(--success); color: #fff; }
 .btn-success:hover:not(:disabled) { background: #15803d; }
 
-.btn-sm { padding: .4rem .8rem; font-size: .82rem; }
+.btn-sm { padding: .32rem .75rem; font-size: .78rem; }
 .btn-block { width: 100%; }
 
 /* Spinner do botão */
@@ -1087,21 +1087,11 @@ a { color: var(--primary); }
 }
 .ed-busca-resumo[hidden] { display: none; }
 
-/* Botões compactos em TODA a seção Cadastro (Documentos, Editar
-   Arquivo, Gerar Sala de Arquivo e Pesquisa): as telas empilham
-   formulário + tabela na altura de um monitor 14", então os botões
-   encolhem para caber sem barra de rolagem. As classes globais
-   (.btn, .btn-sm) continuam valendo nas outras seções. */
-#section-cadastro .btn,
-#section-relatorio .btn {
-  padding: .3rem .65rem;
-  font-size: .78rem;
-  line-height: 1.15;
-}
-/* Botões de título de painel ficam ainda menores */
-#section-cadastro .panel-header .btn { padding: .24rem .55rem; font-size: .74rem; }
-/* Botões de ação dentro da árvore da Editar Arquivo */
-#section-cadastro .ed-acoes .btn { padding: .15rem .4rem; font-size: .7rem; }
+/* TODOS os botões seguem o MESMO padrão de tamanho do .btn global
+   (referência: "Salvar Documento" / "Limpar"). As regras que
+   encolhiam os botões por seção (Cadastro, Relatórios, título de
+   painel, árvore) foram removidas — só o tamanho mudou; cores e
+   margens/gaps das seções continuam valendo. */
 #section-cadastro .form-actions,
 #section-relatorio .form-actions { margin-top: .45rem; gap: .5rem; }
 #section-cadastro .filters-row,
@@ -1139,12 +1129,6 @@ a { color: var(--primary); }
   display: flex;
   align-items: center;
   gap: .25rem;
-}
-.ed-acoes .btn { padding: .2rem .5rem; font-size: .73rem; }
-.ed-acoes .btn-icone {
-  padding: .2rem .4rem;
-  font-size: .73rem;
-  line-height: 1;
 }
 
 .ed-prateleiras {
@@ -1294,8 +1278,7 @@ td.cell-local { white-space: nowrap; }
   #table-pesquisa { font-size: .75rem; }
   #table-pesquisa th,
   #table-pesquisa td { padding: .4rem .5rem; }
-  #table-pesquisa .table-actions { gap: .3rem; }
-  #table-pesquisa .table-actions .btn { padding: .3rem .55rem; font-size: .76rem; }
+#table-pesquisa .table-actions { gap: .3rem; }
 }
 
 .protocol-preview {
@@ -1432,19 +1415,44 @@ td.cell-local { white-space: nowrap; }
    ============================================================ */
 #section-pesquisa .panel { margin-bottom: .6rem; }
 #section-pesquisa .panel:last-child { margin-bottom: 0; }
-#section-pesquisa .panel-header { padding: .5rem .9rem; }
+#section-pesquisa .panel-header { padding: .5rem .9rem; border-bottom: none; }
 #section-pesquisa .panel-header h3 { font-size: .86rem; line-height: 1.25; }
 #section-pesquisa .panel-body { padding: .6rem .75rem; }
-#section-pesquisa .filters-row { gap: .55rem .8rem; }
+/* Barra de filtros da Pesquisa: TUDO em UMA linha (7 campos +
+   botões). Os campos são flexíveis e encolhem juntos até o mínimo
+   de 78px; abaixo disso a barra rola na horizontal em vez de
+   quebrar em duas linhas. Os overrides de grid do .filters-row
+   global não valem em contexto flex (o form-actions continua
+   inline com os campos). */
+#section-pesquisa .filters-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: end;
+  gap: .5rem;
+  overflow-x: auto;
+  padding-bottom: .1rem;
+}
+#section-pesquisa .filters-row .form-group {
+  flex: 1 1 90px;
+  min-width: 78px;
+}
+#section-pesquisa .filters-row .form-actions {
+  flex: 0 0 auto;
+  gap: .5rem;
+}
 #section-pesquisa .form-group { gap: .15rem; }
 #section-pesquisa .form-group label { font-size: .76rem; line-height: 1.3; }
 #section-pesquisa .form-group input,
-#section-pesquisa .form-group select { padding: .35rem .5rem; font-size: .86rem; }
-#section-pesquisa .form-actions .btn { padding: .4rem .85rem; font-size: .82rem; }
+#section-pesquisa .form-group select { padding: .3rem .4rem; font-size: .8rem; min-width: 0; }
+/* Datas em fonte menor: o campo fica estreito na linha única e o
+   "dd/mm/aaaa" + ícone precisa caber sem cortar o último dígito. */
+#section-pesquisa .filters-row input[type="date"] {
+  font-size: .74rem;
+  padding-right: .25rem;
+}
 #section-pesquisa .data-table th { padding: .32rem .55rem; }
 #section-pesquisa .data-table td { padding: .26rem .55rem; }
 #section-pesquisa .table-actions { gap: .3rem; }
-#section-pesquisa .table-actions .btn { padding: .28rem .6rem; font-size: .78rem; }
 #section-pesquisa .pagination { padding: .3rem .5rem; }
 
 /* Descrição em uma única linha com reticências (evita linha alta) */

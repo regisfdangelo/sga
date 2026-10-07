@@ -765,6 +765,15 @@ const SGA_API = (() => {
     if (filtros.setor) parts.push(`setor=eq.${encodeURIComponent(filtroSeguro(filtros.setor))}`);
     if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtroSeguro(filtros.status))}`);
 
+    // Período de data do documento (YYYY-MM-DD do <input type="date">).
+    // data_documento é DATE: lte no último dia inclui o dia inteiro.
+    if (filtros.dataIni) {
+      parts.push(`data_documento=gte.${encodeURIComponent(filtroSeguro(filtros.dataIni))}`);
+    }
+    if (filtros.dataFim) {
+      parts.push(`data_documento=lte.${encodeURIComponent(filtroSeguro(filtros.dataFim))}`);
+    }
+
     /**
      * Filtro de SALA: o vínculo é documentos.caixa_id -> caixas ->
      * caixas.sala_id, então o recorte entra pelo embed com JOIN

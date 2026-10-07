@@ -1385,6 +1385,18 @@
       paginaPesquisa = 1; // nova busca volta para a primeira página
       const minhaVez = ++seqPesquisa;
       const tbody = document.querySelector('#table-pesquisa tbody');
+
+      U.clearErrors(form);
+      const dataIni = document.getElementById('pesq-data-ini').value;
+      const dataFim = document.getElementById('pesq-data-fim').value;
+      // Período invertido: nada sairia do banco — avisa antes de
+      // trocar a tabela por "Pesquisando…".
+      if (dataIni && dataFim && dataIni > dataFim) {
+        U.setError('pesq-data-ini', 'Data inicial maior que a final');
+        U.toast('Período inválido: a data inicial é posterior à final.', 'warning');
+        return;
+      }
+
       tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Pesquisando…</td></tr>';
 
       try {
@@ -1394,6 +1406,8 @@
           setor: document.getElementById('pesq-setor').value,
           status: document.getElementById('pesq-status').value,
           salaId: document.getElementById('pesq-sala').value,
+          dataIni,
+          dataFim,
         };
         const docs = await SGA_API.searchDocumentos(filtros);
         if (minhaVez !== seqPesquisa) return; // resposta antiga, descarta
@@ -1417,10 +1431,19 @@
       timerDescricao = setTimeout(executarPesquisa, 300);
     });
 
+    // Período: escolher a data já refaz a busca (debounce 300ms)
+    ['pesq-data-ini', 'pesq-data-fim'].forEach(id => {
+      document.getElementById(id).addEventListener('change', () => {
+        clearTimeout(timerDescricao);
+        timerDescricao = setTimeout(executarPesquisa, 300);
+      });
+    });
+
     document.getElementById('btn-limpar-pesquisa').addEventListener('click', () => {
       clearTimeout(timerDescricao);
       seqPesquisa++; // cancela resposta pendente
       paginaPesquisa = 1;
+      U.clearErrors(form);
       form.reset();
       renderPesquisa([]);
       document.getElementById('pesquisa-count').textContent = '0';
