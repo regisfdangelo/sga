@@ -323,8 +323,8 @@
 
                   <div class="form-group">
                     <label for="doc-tipo">Tipo *</label>
-                    <input type="text" id="doc-tipo" list="list-tipo" required maxlength="80" placeholder="Ex.: Contrato, Ficha, Relatório">
-                    <datalist id="list-tipo">
+                    <select id="doc-tipo" required>
+                      <option value="">Selecione…</option>
                       <option>Contrato</option>
                       <option>Ficha Funcional</option>
                       <option>Relatório</option>
@@ -338,7 +338,7 @@
                       <option>Processo Judicial</option>
                       <option>Ficha de Revisão</option>
                       <option>Medicina do Trabalho</option>
-                    </datalist>
+                    </select>
                     <span class="field-error" id="error-doc-tipo" role="alert"></span>
                   </div>
 

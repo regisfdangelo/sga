@@ -1490,9 +1490,11 @@
 
   /* ---- Edição do documento (modal, a partir da aba Pesquisa) ---- */
   async function abrirEdicaoDocumento(d) {
-    // opções de setor/categoria reutilizadas do formulário de cadastro
+    // opções de tipo/setor/categoria reutilizadas do formulário de cadastro
+    const elTipo = document.getElementById('doc-tipo');
     const elSetor = document.getElementById('doc-setor');
     const elCategoria = document.getElementById('doc-categoria');
+    const opsTipo = elTipo ? elTipo.innerHTML : '';
     const opsSetor = elSetor ? elSetor.innerHTML : '';
     const opsCategoria = elCategoria ? elCategoria.innerHTML : '';
 
@@ -1539,7 +1541,7 @@
         </div>
         <div class="form-group">
           <label for="ed-tipo">Tipo *</label>
-          <input type="text" id="ed-tipo" list="list-tipo" maxlength="80" value="${U.esc(d.tipo)}">
+          <select id="ed-tipo">${opsTipo}</select>
           <span class="field-error" id="error-ed-tipo" role="alert"></span>
         </div>
         <div class="form-group">
@@ -1579,6 +1581,12 @@
       </form>`);
 
     // valores atuais nos selects
+    // tipos antigos cadastrados com texto livre podem não estar na lista
+    const selTipo = document.getElementById('ed-tipo');
+    if (d.tipo && ![...selTipo.options].some(o => o.value === d.tipo)) {
+      selTipo.add(new Option(d.tipo, d.tipo));
+    }
+    selTipo.value = d.tipo || '';
     document.getElementById('ed-setor').value = d.setor || '';
     document.getElementById('ed-categoria').value = d.categoria || '';
     document.getElementById('ed-caixa').value = d.caixa_id || '';
@@ -1601,7 +1609,7 @@
 
       let ok = true;
       if (!descricao) { U.setError('ed-descricao', 'O nome é obrigatório.'); ok = false; }
-      if (!tipo) { U.setError('ed-tipo', 'Informe o tipo.'); ok = false; }
+      if (!tipo) { U.setError('ed-tipo', 'Selecione o tipo.'); ok = false; }
       if (!setor) { U.setError('ed-setor', 'Selecione o setor.'); ok = false; }
       if (!categoria) { U.setError('ed-categoria', 'Selecione a categoria.'); ok = false; }
       if (!dataDoc) { U.setError('ed-data', 'Informe a data do documento.'); ok = false; }
@@ -1785,7 +1793,7 @@
       const observacoes = document.getElementById('doc-observacoes').value.trim();
 
       if (!descricao) { U.setError('doc-descricao', 'O nome é obrigatório.'); ok = false; }
-      if (!tipo) { U.setError('doc-tipo', 'Informe o tipo.'); ok = false; }
+      if (!tipo) { U.setError('doc-tipo', 'Selecione o tipo.'); ok = false; }
       if (!setor) { U.setError('doc-setor', 'Selecione o setor.'); ok = false; }
       if (!categoria) { U.setError('doc-categoria', 'Selecione a categoria.'); ok = false; }
       if (!dataDoc) { U.setError('doc-data', 'Informe a data do documento.'); ok = false; }
