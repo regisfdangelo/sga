@@ -372,7 +372,14 @@
     // Carrega dados da seção
     switch (name) {
       case 'painel': loadPainel(); break;
-      case 'pesquisa': initPesquisaOnce(); break;
+      case 'pesquisa':
+        initPesquisaOnce();
+        // O select de sala nasce vazio e quem o preenche é
+        // loadLocalSelects() — até aqui ele só rodava na abertura
+        // do Cadastro, então uma sessão que ia direto para a
+        // Pesquisa ficava sem nenhuma sala para escolher.
+        loadLocalSelects();
+        break;
       case 'cadastro': initCadastroOnce(); break;
       case 'emprestimo':
         initEmprestimoOnce();
