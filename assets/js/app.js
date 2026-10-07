@@ -495,66 +495,23 @@
     preencheMetricasPainel(m);
   }
 
-  async function loadPainel() {
-    try {
-      const m = await SGA_API.getMetricas();
+  function loadPainel() {
+    // Cards: entram ZERADOS (sem anéis) até uma sala ser escolhida
+    // na barra do Mapa do Arquivo — a escolha é quem chama
+    // loadMetricasSala(). As duas tabelas resumo (últimos documentos
+    // e empréstimos ativos) foram removidas do Painel.
+    zerarMetricasPainel();
 
-      // Cards: entram ZERADOS (sem anéis) até uma sala ser
-      // escolhida na barra do Mapa do Arquivo — a escolha é quem
-      // chama loadMetricasSala(). As tabelas resumo abaixo seguem
-      // com a visão do acervo inteiro, como sempre.
-      zerarMetricasPainel();
+    // Gráficos: entram zerados e só carregam quando a sala for
+    // escolhida na barra do Mapa do Arquivo. A escolha anterior
+    // também é limpa: deixar o select nomeando uma sala com os
+    // gráficos zerados seria mentiroso.
+    const selSala = document.getElementById('mapa-sala');
+    if (selSala) selSala.value = '';
+    zerarGraficosPainel();
 
-      // Gráficos: entram zerados e só carregam quando a sala for
-      // escolhida na barra do Mapa do Arquivo (mais abaixo).
-      // A escolha anterior também é limpa: deixar o select nomeando
-      // uma sala com os gráficos zerados seria mentiroso.
-      const selSala = document.getElementById('mapa-sala');
-      if (selSala) selSala.value = '';
-      zerarGraficosPainel();
-
-      // Mapa do arquivo (select de sala + grade de caixas)
-      initMapaArquivo().catch(err => console.warn('mapa do arquivo:', err.message));
-
-      // Últimos documentos
-      const recentes = [...m.documentos]
-        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-        .slice(0, 5);
-
-      const tbodyDoc = document.querySelector('#table-recentes tbody');
-      tbodyDoc.innerHTML = recentes.length
-        ? recentes.map(d => `
-            <tr>
-              <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
-              <td>${U.esc(d.descricao)}</td>
-              <td>${U.esc(d.setor)}</td>
-              <td>${U.pill(d.status)}</td>
-            </tr>`).join('')
-        : '<tr><td colspan="4" class="empty-state">Nenhum documento cadastrado ainda</td></tr>';
-
-      // Empréstimos ativos
-      const ativos = m.emprestimos
-        .filter(e => e.status === 'ativo')
-        .sort((a, b) => (a.data_devolucao_prevista || '').localeCompare(b.data_devolucao_prevista || ''))
-        .slice(0, 5);
-
-      const tbodyEmp = document.querySelector('#table-emprestimos-ativos tbody');
-      tbodyEmp.innerHTML = ativos.length
-        ? ativos.map(e => {
-            const atrasado = e.data_devolucao_prevista && e.data_devolucao_prevista < U.hoje();
-            return `
-            <tr>
-              <td class="cell-protocolo">${U.esc(e.doc_protocolo || e.documento_id || '—')}</td>
-              <td>${U.esc(e.solicitante_nome)}</td>
-              <td>${U.fmtData(e.data_devolucao_prevista)}</td>
-              <td>${U.pill(atrasado ? 'atrasado' : 'ativo')}</td>
-            </tr>`;
-          }).join('')
-        : '<tr><td colspan="4" class="empty-state">Nenhum empréstimo ativo</td></tr>';
-
-    } catch (err) {
-      U.toast(`Erro ao carregar painel: ${err.message}`, 'error');
-    }
+    // Mapa do arquivo (select de sala + grade de caixas)
+    initMapaArquivo().catch(err => console.warn('mapa do arquivo:', err.message));
   }
 
   /* ============================================================
@@ -717,10 +674,11 @@
    * ponta redonda e brilho colorido, grade só horizontal, sem linha
    * de eixo e o último mês destacado em azul no eixo X.
    *
-   * O viewBox usa a LARGURA REAL do card e ALTURA FIXA: assim o
-   * gráfico não cresce em altura quando a janela é larga e os dois
-   * cards do Painel fecham com a mesma medida. A largura muda com a
-   * janela, então o resize redesenha (listener no fim da seção).
+   * O viewBox usa a LARGURA e a ALTURA REAIS do card: no Painel a
+   * linha dos gráficos é esticada até o fim da tela e o gráfico
+   * preenche o card inteiro (os dois cards fecham com a mesma
+   * medida). Largura/altura mudam com a janela, então o resize
+   * redesenha (listener no fim da seção).
    */
   let graficoMensalDados = [];
 
@@ -745,7 +703,17 @@
     // (px puro, sem depender de a UI devolver rem ou px).
     const util = box.clientWidth - (box.offsetWidth - box.clientWidth);
     const L = 42, R = 14, T = 20, B = 30;   // margens
-    const H = 240;                           // altura fixa (igual ao card do velo)
+    // Altura: acompanha o card. No Painel a linha dos gráficos é
+    // esticada até o fim da tela (flex: 1 da seção) e o gráfico
+    // preenche o conteúdo do card. O clientHeight vem com o padding
+    // do .panel-body, então ele é descontado (sem getComputedStyle
+    // — ex.: harness em vm — cai no padrão 240, como antes).
+    const pad = typeof getComputedStyle === 'function'
+      ? (parseFloat(getComputedStyle(box).paddingTop) || 0)
+        + (parseFloat(getComputedStyle(box).paddingBottom) || 0)
+      : 0;
+    const altUtil = box.clientHeight - (box.offsetHeight - box.clientHeight) - pad;
+    const H = altUtil > 100 ? Math.round(altUtil) : 240;
     const W = util > 240 ? util : 720;       // card escondido: escala pelo CSS
     const larguraPlot = W - L - R;
     const alturaPlot = H - T - B;
@@ -870,9 +838,9 @@
   }
 
   /**
-   * O viewBox do gráfico mensal acompanha a largura do card: ao
-   * redimensionar a janela ele é redesenhado (altura fixa — é ela
-   * que iguala a altura dos dois cards do Painel).
+   * O viewBox do gráfico mensal acompanha largura E altura do card:
+   * ao redimensionar a janela ele é redesenhado (o flex do Painel
+   * redistribui os cards, então os dois fecham com a mesma medida).
    */
   let timerResizeGrafico = null;
   window.addEventListener('resize', () => {

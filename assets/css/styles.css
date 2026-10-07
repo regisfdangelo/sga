@@ -614,14 +614,26 @@ a { color: var(--primary); }
 }
 
 /* ============================================================
-   PAINEL — layout compacto para caber em tela 14" (1366x768)
-   sem barra de rolagem vertical (5 últimas linhas por painel)
+   PAINEL — ocupa a tela inteira SEM barra de rolagem:
+   a seção vira coluna flex com altura FECHADA (viewport −
+   topbar − padding do .content) e a linha dos gráficos estica
+   (flex: 1) até o fim da tela. Os margin-bottom dos blocos viram
+   GAP para a soma fechar exatamente no pé da tela.
    ============================================================ */
-#section-painel .metrics-grid { margin-bottom: 1rem; gap: 1rem; }
+#section-painel.active {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: calc(100vh - var(--topbar-h) - 2.3rem);
+  min-height: 430px;
+  overflow: hidden;
+}
+#section-painel .metrics-grid { margin-bottom: 0; gap: 1rem; flex: 0 0 auto; }
 #section-painel .metric-card { padding: 1.05rem 1.2rem; padding-right: 6.2rem; gap: .8rem; }
 #section-painel .metric-value { font-size: 1.75rem; }
 #section-painel .metric-icon { width: 48px; height: 48px; padding: 11px; border-radius: 13px; }
-#section-painel .grid-2col { gap: 0 1.25rem; }
+#section-painel .mapa-painel { margin-bottom: 0; flex: 0 0 auto; }
+#section-painel .grid-graficos { flex: 1 1 auto; min-height: 0; margin-bottom: 0; }
 #section-painel .panel { margin-bottom: 1rem; }
 #section-painel .panel-header { padding: .7rem 1.2rem; }
 #section-painel .panel-header h3 { font-size: .95rem; }
@@ -630,13 +642,14 @@ a { color: var(--primary); }
 #section-painel .data-table th { padding: .5rem .75rem; }
 #section-painel .data-table td { padding: .5rem .75rem; }
 
-/* ============================================================
+/*    ============================================================
    GRÁFICOS DO PAINEL (SVG puro, sem biblioteca)
-   - .grid-graficos: velocímetro (largura fixa) + colunas (1fr);
+   - .grid-graficos: velocímetro (largura fixa) + linhas (1fr);
    - o SVG escala pela largura do painel (viewBox no JS);
    - os DOIS cards fecham com a MESMA ALTURA: o card é flex e o
      corpo cresce/centraliza o conteúdo, enquanto o gráfico de
-     colunas tem altura fixa no viewBox (H = 240).
+     linhas usa a ALTURA REAL do corpo no viewBox (H = client
+     height − padding; sem medida, cai no padrão 240).
    ============================================================ */
 .grid-graficos {
   display: grid;
