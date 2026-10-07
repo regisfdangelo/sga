@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261006.3">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261007.1">
 </head>
 <body class="app-page">
 
@@ -97,49 +97,9 @@
 
         <!-- ============ PAINEL ============ -->
         <section class="section active" id="section-painel" aria-labelledby="section-title">
-          <div class="metrics-grid">
-            <article class="metric-card metric-primary">
-              <div class="metric-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-value" id="metric-total">0</span>
-                <span class="metric-label">Total no Acervo</span>
-              </div>
-            </article>
-
-            <article class="metric-card metric-warning">
-              <div class="metric-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-value" id="metric-emprestados">0</span>
-                <span class="metric-label">Emprestados</span>
-              </div>
-            </article>
-
-            <article class="metric-card metric-danger">
-              <div class="metric-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-value" id="metric-atrasados">0</span>
-                <span class="metric-label">Empréstimos Atrasados</span>
-              </div>
-            </article>
-
-            <article class="metric-card metric-success">
-              <div class="metric-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </div>
-              <div class="metric-body">
-                <span class="metric-value" id="metric-descarte">0</span>
-                <span class="metric-label">Para Descarte</span>
-              </div>
-            </article>
-          </div>
-
-          <!-- Mapa do arquivo: escolher a sala abre o mapa em pop-up -->
+          <!-- Mapa do arquivo: escolher a sala abre o mapa em pop-up.
+               A barra fica ACIMA dos cards: é ela que liga os cards
+               e os gráficos da sala escolhida. -->
           <article class="panel mapa-painel">
             <header class="panel-header">
               <h3>Mapa do Arquivo</h3>
@@ -152,6 +112,52 @@
               </div>
             </header>
           </article>
+
+          <div class="metrics-grid">
+            <article class="metric-card metric-primary">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-total">0</span>
+                <span class="metric-label">Total no Acervo</span>
+              </div>
+              <div class="metric-ring" id="ring-total" hidden></div>
+            </article>
+
+            <article class="metric-card metric-warning">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-emprestados">0</span>
+                <span class="metric-label">Emprestados</span>
+              </div>
+              <div class="metric-ring" id="ring-emprestados" hidden></div>
+            </article>
+
+            <article class="metric-card metric-danger">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-atrasados">0</span>
+                <span class="metric-label">Empréstimos Atrasados</span>
+              </div>
+              <div class="metric-ring" id="ring-atrasados" hidden></div>
+            </article>
+
+            <article class="metric-card metric-success">
+              <div class="metric-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </div>
+              <div class="metric-body">
+                <span class="metric-value" id="metric-descarte">0</span>
+                <span class="metric-label">Para Descarte</span>
+              </div>
+              <div class="metric-ring" id="ring-descarte" hidden></div>
+            </article>
+          </div>
 
           <!-- Gráficos: velocímetro de ocupação + colunas novos/descartados -->
           <div class="grid-graficos">
@@ -231,6 +237,12 @@
             </header>
             <div class="panel-body">
               <form id="form-pesquisa" class="filters-row" novalidate>
+                <div class="form-group">
+                  <label for="pesq-sala">Sala de arquivo</label>
+                  <select id="pesq-sala">
+                    <option value="">Todas as salas</option>
+                  </select>
+                </div>
                 <div class="form-group">
                   <label for="pesq-protocolo">Protocolo</label>
                   <input type="text" id="pesq-protocolo" placeholder="Ex.: 2026-000001" maxlength="20">
@@ -830,8 +842,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261006.3"></script>
-  <script src="assets/js/api.js?v=20261006.3"></script>
-  <script src="assets/js/app.js?v=20261006.3"></script>
+  <script src="assets/js/config.js?v=20261007.1"></script>
+  <script src="assets/js/api.js?v=20261007.1"></script>
+  <script src="assets/js/app.js?v=20261007.1"></script>
 </body>
 </html>

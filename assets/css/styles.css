@@ -486,32 +486,28 @@ a { color: var(--primary); }
 
 .metric-card {
   position: relative;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: #ffffff;
   border: 1px solid var(--border);
-  border-left: 4px solid var(--primary);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: var(--shadow);
   padding: 1.3rem 1.4rem;
+  padding-right: 6.4rem;
   display: flex;
-  align-items: center;
-  gap: 1.15rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .85rem;
   overflow: hidden;
   transition: transform var(--transition), box-shadow var(--transition);
 }
 .metric-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 
-.metric-card.metric-primary { border-left-color: var(--primary); }
-.metric-card.metric-warning { border-left-color: var(--warning); }
-.metric-card.metric-danger  { border-left-color: var(--danger); }
-.metric-card.metric-success { border-left-color: var(--success); }
-
 .metric-icon {
-  width: 54px; height: 54px;
-  border-radius: 14px;
+  width: 48px; height: 48px;
+  border-radius: 13px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  padding: 13px;
+  padding: 11px;
 }
 .metric-icon svg { width: 100%; height: 100%; stroke-width: 1.8; }
 
@@ -522,7 +518,7 @@ a { color: var(--primary); }
 
 .metric-body { display: flex; flex-direction: column; min-width: 0; }
 
-/* Número: grande, alinhado opticamente (tabular) e na cor do indicador */
+/* Número: grande, alinhado opticamente (tabular) e em tom escuro neutro */
 .metric-value {
   font-size: 2rem;
   font-weight: 800;
@@ -532,20 +528,59 @@ a { color: var(--primary); }
   font-feature-settings: 'tnum' 1;
   color: var(--text);
 }
-.metric-primary .metric-value { color: var(--primary-dark); }
-.metric-warning .metric-value { color: #b45309; }
-.metric-danger  .metric-value { color: #b91c1c; }
-.metric-success .metric-value { color: #15803d; }
 
-/* Rótulo: maior, negrito e alto contraste para leitura rápida */
+/* Rótulo: cinza (título neutro abaixo do número) */
 .metric-label {
   margin-top: .3rem;
   font-size: .88rem;
   font-weight: 500;
   line-height: 1.3;
   letter-spacing: .01em;
-  color: #334155;
+  color: var(--text-muted);
 }
+
+/* Anel de progresso à direita do card (modelo do usuário) */
+.metric-ring {
+  position: absolute;
+  right: 1.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 66px;
+  height: 66px;
+}
+.metric-ring[hidden] { display: none; }
+.metric-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.metric-ring circle {
+  fill: none;
+  stroke-width: 7;
+}
+.metric-ring-prog {
+  stroke-linecap: round;
+  transition: stroke-dasharray .6s ease;
+}
+.metric-ring-valor {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-primary .metric-ring-prog    { stroke: var(--primary); }
+.metric-primary .metric-ring-trilha  { stroke: var(--info-bg); }
+.metric-warning .metric-ring-prog    { stroke: var(--warning); }
+.metric-warning .metric-ring-trilha  { stroke: var(--warning-bg); }
+.metric-danger  .metric-ring-prog    { stroke: var(--danger); }
+.metric-danger  .metric-ring-trilha  { stroke: var(--danger-bg); }
+.metric-success .metric-ring-prog    { stroke: var(--success); }
+.metric-success .metric-ring-trilha  { stroke: var(--success-bg); }
 
 /* ============================================================
    PAINÉIS / CARDS
@@ -583,7 +618,8 @@ a { color: var(--primary); }
    sem barra de rolagem vertical (5 últimas linhas por painel)
    ============================================================ */
 #section-painel .metrics-grid { margin-bottom: 1rem; gap: 1rem; }
-#section-painel .metric-card { padding: 1.05rem 1.2rem; gap: 1rem; }
+#section-painel .metric-card { padding: 1.05rem 1.2rem; padding-right: 6.2rem; gap: .8rem; }
+#section-painel .metric-value { font-size: 1.75rem; }
 #section-painel .metric-icon { width: 48px; height: 48px; padding: 11px; border-radius: 13px; }
 #section-painel .grid-2col { gap: 0 1.25rem; }
 #section-painel .panel { margin-bottom: 1rem; }
@@ -597,14 +633,31 @@ a { color: var(--primary); }
 /* ============================================================
    GRÁFICOS DO PAINEL (SVG puro, sem biblioteca)
    - .grid-graficos: velocímetro (largura fixa) + colunas (1fr);
-   - o SVG escala pela largura do painel (viewBox no JS).
+   - o SVG escala pela largura do painel (viewBox no JS);
+   - os DOIS cards fecham com a MESMA ALTURA: o card é flex e o
+     corpo cresce/centraliza o conteúdo, enquanto o gráfico de
+     colunas tem altura fixa no viewBox (H = 240).
    ============================================================ */
 .grid-graficos {
   display: grid;
   grid-template-columns: minmax(240px, 300px) 1fr;
   gap: 1.25rem;
-  align-items: start;
+  align-items: stretch;
   margin-bottom: 1.25rem;
+}
+.grid-graficos .panel {
+  display: flex;
+  flex-direction: column;
+}
+/* O #section-painel dá margin-bottom: 1rem aos .panel; dentro do
+   grid isso sobraria uma faixa vazia embaixo dos dois cards. */
+#section-painel .grid-graficos .panel { margin-bottom: 0; }
+.grid-graficos .panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
 }
 /* Títulos dos dois cartões de gráfico (velocímetro + colunas) sem
    a linha cinza do .panel-header: o rótulo que separa o título do
@@ -624,43 +677,81 @@ a { color: var(--primary); }
 .grafico-chave {
   width: 12px;
   height: 12px;
-  border-radius: 3px;
+  border-radius: 50%;
   display: inline-block;
 }
-.grafico-chave.k-novos { background: var(--primary); }
+.grafico-chave.k-novos { background: #22c55e; }
 .grafico-chave.k-descartados { background: var(--danger); }
 
-/* Colunas agrupadas ---------------------------------------- */
+/* Gráfico de linhas (estilo referência) ---------------------- */
 .grafico-svg { width: 100%; height: auto; display: block; }
-.grafico-grade { stroke: var(--border); stroke-width: 1; }
-.grafico-base { stroke: #cbd5e1; stroke-width: 1.5; }
-.grafico-eixo-y,
+/* Grade discreta: só linhas horizontais, sem eixo de base */
+.grafico-grade { stroke: #eef1f6; stroke-width: 1; }
+.grafico-eixo-y {
+  font-size: 10.5px;
+  fill: #94a3b8;
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
 .grafico-eixo-x {
   font-size: 11px;
   fill: var(--text-muted);
   font-family: var(--font);
 }
-.grafico-col { transition: opacity var(--transition); }
-.grafico-col:hover { opacity: .75; }
-.grafico-col.c-novos { fill: var(--primary); }
-.grafico-col.c-descartados { fill: var(--danger); }
+/* Último mês destacado, como o último dia da referência */
+.grafico-eixo-x.atual { fill: var(--primary); font-weight: 700; }
+
+/* Traço grosso com ponta redonda + brilho colorido embaixo */
+.grafico-linha {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.grafico-linha.c-novos {
+  stroke: #22c55e;
+  filter: drop-shadow(0 3px 5px rgba(34, 197, 94, .4));
+}
+.grafico-linha.c-descartados {
+  stroke: var(--danger);
+  filter: drop-shadow(0 3px 5px rgba(220, 38, 38, .35));
+}
+/* Ponto invisível de hit-area: só para o tooltip do mouse */
+.grafico-ponto { fill: transparent; stroke: none; }
 
 /* Velocímetro ------------------------------------------------ */
-.velo-svg { width: 100%; height: auto; max-width: 300px; margin: 0 auto; }
+.velo-svg {
+  width: 100%;
+  height: auto;
+  max-width: 300px;
+  margin: 0 auto;
+  display: block;
+}
 .velo-agulha {
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
+  /* Rotação em torno do centro do arco (transform-origin vem no
+     style inline, em unidades do viewBox). */
+  transform-box: view-box;
   transition: transform .8s cubic-bezier(.22, 1, .36, 1);
+  filter: drop-shadow(0 1px 1.5px rgba(15, 23, 42, .28));
 }
 .velo-valor {
   font-size: 34px;
-  font-weight: 800;
+  font-weight: 700;
   fill: var(--text);
   font-family: var(--font);
   letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.velo-valor .velo-simbolo {
+  font-size: 18px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  letter-spacing: 0;
 }
 .velo-legenda {
-  font-size: 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
   fill: var(--text-muted);
   font-family: var(--font);
 }
@@ -669,20 +760,6 @@ a { color: var(--primary); }
   fill: var(--text-muted);
   font-family: var(--font);
 }
-/* Legenda das faixas: mais legível que um "70%" solto no meio do arco */
-.velo-faixas {
-  list-style: none;
-  display: flex;
-  justify-content: center;
-  gap: .8rem;
-  flex-wrap: wrap;
-  margin-top: .3rem;
-  font-size: .72rem;
-  color: var(--text-muted);
-}
-.velo-faixas li { display: inline-flex; align-items: center; gap: .3rem; }
-.velo-faixas i { width: 9px; height: 9px; border-radius: 2px; }
-
 .velo-resumo {
   margin-top: .5rem;
   text-align: center;
@@ -694,7 +771,6 @@ a { color: var(--primary); }
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.velo-nota { display: block; font-size: .75rem; color: var(--text-muted); }
 
 /* ============================================================
    MAPA DO ARQUIVO (PAINEL) — select de sala; ao escolher, o
@@ -1141,6 +1217,15 @@ a { color: var(--primary); }
 #modal-body .form-stack { display: flex; flex-direction: column; gap: .7rem; }
 #modal-body .form-stack select,
 #modal-body .form-stack input { width: 100%; }
+
+/* Campos dos modais na tipografia padrão de UI: herdam o 1rem (15px),
+   maior que o resto do app (.85-.88rem) — a lista nativa do <select>
+   (pop-up de transferência) também saía maior que o padrão. */
+#modal-body input,
+#modal-body select,
+#modal-body textarea { font-size: .88rem; }
+#modal-body select option { font-size: .88rem; }
+
 #modal-body .ed-aviso { margin-top: .2rem; }
 
 /* Transferir caixa: pergunta "mesma sala" x "outra sala".
@@ -1571,10 +1656,12 @@ td.cell-local { white-space: nowrap; }
 @media (max-width: 560px) {
   html { font-size: 14px; }
   .metrics-grid { grid-template-columns: 1fr 1fr; gap: .85rem; }
-  .metric-card { padding: .95rem .9rem; gap: .7rem; border-radius: 10px; }
+  .metric-card { padding: .95rem .9rem; padding-right: 4.9rem; gap: .7rem; border-radius: 14px; }
   .metric-value { font-size: 1.55rem; }
   .metric-label { font-size: .78rem; margin-top: .2rem; }
   .metric-icon { width: 42px; height: 42px; padding: 9px; border-radius: 11px; }
+  .metric-ring { width: 54px; height: 54px; right: .8rem; }
+  .metric-ring-valor { font-size: .72rem; }
   .grid-2col { grid-template-columns: 1fr; }
   .login-card { padding: 1.75rem 1.25rem 1.5rem; }
   .detail-row { grid-template-columns: 1fr; gap: .1rem; }

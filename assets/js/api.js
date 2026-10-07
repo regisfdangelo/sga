@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261002.32';
+  const versao = '20261007.1';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -515,16 +515,39 @@ const SGA_API = (() => {
      Consultas de domínio
      ---------------------------------------------------------- */
 
-  async function getMetricas() {
-    const [docs, emps] = await Promise.all([
-      // só as colunas consumidas pelo painel (métricas + tabelas resumo)
-      list('documentos', '', 'protocolo,descricao,setor,status,prazo_guarda,created_at'),
-      list('emprestimos', '', 'documento_id,doc_protocolo,solicitante_nome,status,data_devolucao_prevista'),
+  /**
+   * Métricas do Painel (cards + tabelas resumo).
+   *
+   * `salaId` recorta os CONTAGENS pela sala: só entram documentos
+   * cuja caixa está nela (mesmo vínculo do gráfico do Painel).
+   * Sem `salaId` é o acervo inteiro. As tabelas resumo
+   * (`documentos`/`emprestimos`) voltam SEMPRE completas — o
+   * recorte muda só os números e os anéis dos cards.
+   */
+  async function getMetricas(salaId = null) {
+    const filtro = salaId ? String(salaId) : '';
+    const [docs, emps, caixas] = await Promise.all([
+      // listTudo: a paginação evita o corte de 1000 linhas do
+      // PostgREST (senão a contagem e a capacidade mentem).
+      listTudo('documentos', '', 'id,protocolo,descricao,setor,status,prazo_guarda,created_at,caixa_id'),
+      listTudo('emprestimos', '', 'documento_id,doc_protocolo,solicitante_nome,status,data_devolucao_prevista'),
+      listTudo('caixas', '&order=id', 'id,sala_id,capacidade'),
     ]);
 
     const hoje = new Date().toISOString().slice(0, 10);
-    const documentos = docs || [];
-    const emprestimos = emps || [];
+    const todosDocs = docs || [];
+    const todosEmps = emps || [];
+
+    // Recorte da sala: caixas da sala -> documentos nelas ->
+    // empréstimos daqueles documentos.
+    const caixasRecorte = (caixas || []).filter(c => !filtro || String(c.sala_id) === filtro);
+    const idsCaixas = new Set(caixasRecorte.map(c => c.id));
+    const naSala = d => !filtro || (!!d.caixa_id && idsCaixas.has(d.caixa_id));
+    const documentos = todosDocs.filter(naSala);
+    const idsDocs = new Set(documentos.map(d => d.id));
+    const emprestimos = filtro
+      ? todosEmps.filter(e => idsDocs.has(e.documento_id))
+      : todosEmps;
 
     const ativos = emprestimos.filter(e => e.status === 'ativo');
     const atrasados = ativos.filter(e => e.data_devolucao_prevista && e.data_devolucao_prevista < hoje);
@@ -536,13 +559,27 @@ const SGA_API = (() => {
 
     const noAcervo = documentos.filter(d => d.status !== 'descartado');
 
+    // Ocupação física (mesmo critério do gráfico do Painel):
+    // pastas que ocupam caixa / capacidade somada das caixas.
+    let capacidade = 0;
+    caixasRecorte.forEach(c => {
+      const cap = Number(c.capacidade);
+      if (cap > 0) capacidade += cap;
+    });
+    const ocupadas = noAcervo.filter(d => d.caixa_id).length;
+
     return {
       total: noAcervo.length,
       emprestados: ativos.length,
       atrasados: atrasados.length,
       paraDescarte: paraDescarte.length,
-      documentos,
-      emprestimos,
+      ocupacao: {
+        ocupadas,
+        capacidade,
+        percentual: capacidade > 0 ? Math.round((ocupadas / capacidade) * 100) : null,
+      },
+      documentos: todosDocs,
+      emprestimos: todosEmps,
     };
   }
 
@@ -728,9 +765,22 @@ const SGA_API = (() => {
     if (filtros.setor) parts.push(`setor=eq.${encodeURIComponent(filtroSeguro(filtros.setor))}`);
     if (filtros.status) parts.push(`status=eq.${encodeURIComponent(filtroSeguro(filtros.status))}`);
 
+    /**
+     * Filtro de SALA: o vínculo é documentos.caixa_id -> caixas ->
+     * caixas.sala_id, então o recorte entra pelo embed com JOIN
+     * INTERNO (`caixas!inner`): sem ele o PostgREST filtraria só a
+     * parte embutida e DEVOLVERIA todos os documentos (os de fora
+     * da sala com `caixas: null`). Com !inner, documento sem caixa
+     * ou com caixa de outra sala sai do resultado.
+     */
+    if (filtros.salaId) {
+      parts.push(`caixas.sala_id=eq.${encodeURIComponent(filtroSeguro(filtros.salaId))}`);
+    }
+    const inner = filtros.salaId ? '!inner' : '';
+
     const q = parts.length ? '&' + parts.join('&') : '';
     const cols = 'id,protocolo,descricao,tipo,setor,categoria,data_documento,prazo_guarda,caixa_id,status,observacoes,'
-      + 'caixas(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))';
+      + `caixas${inner}(codigo,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo))`;
     return request('GET', `/rest/v1/documentos?select=${cols}${q}&order=created_at.desc`);
   }
 

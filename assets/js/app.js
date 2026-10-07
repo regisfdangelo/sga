@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261002.32';
+  const VERSAO_APP = '20261007.1';
 
   /* ============================================================
      UTILITÁRIOS
@@ -411,14 +411,99 @@
   /* ============================================================
      SEÇÃO: PAINEL (métricas + tabelas resumo)
      ============================================================ */
+
+  /**
+   * Desenha o anel de progresso de um card de métrica.
+   * `pct` em 0..100 (pode passar de 100 na ocupação: o arco é
+   * saturado em 100, mas o texto mostra o valor real). Sem
+   * percentual (null/undefined) o anel fica oculto.
+   */
+  function desenharAnelMetrica(id, pct) {
+    const alvo = document.getElementById(id);
+    if (!alvo) return;
+    if (pct === null || pct === undefined || !Number.isFinite(Number(pct))) {
+      alvo.hidden = true;
+      alvo.innerHTML = '';
+      return;
+    }
+    const valor = Math.round(Number(pct));
+    const cheio = Math.max(0, Math.min(100, valor));
+    const R = 30;                       // r=30 em viewBox 72x72
+    const C = 2 * Math.PI * R;          // circunferência total
+    const avanco = (C * cheio) / 100;
+    alvo.innerHTML = `
+      <svg viewBox="0 0 72 72" aria-hidden="true">
+        <circle class="metric-ring-trilha" cx="36" cy="36" r="${R}"></circle>
+        <circle class="metric-ring-prog" cx="36" cy="36" r="${R}"
+                stroke-dasharray="${avanco.toFixed(1)} ${C.toFixed(1)}"></circle>
+      </svg>
+      <span class="metric-ring-valor">${valor}%</span>`;
+    alvo.setAttribute('role', 'img');
+    alvo.setAttribute('aria-label', `${valor}%`);
+    alvo.hidden = false;
+  }
+
+  /**
+   * Zera os 4 cards de métrica: é o estado de quem acabou de
+   * entrar no Painel (nenhuma sala escolhida) e também o de quem
+   * limpou a escolha. "0" sem anel — sem sala não há o que medir.
+   */
+  function zerarMetricasPainel() {
+    ['metric-total', 'metric-emprestados', 'metric-atrasados', 'metric-descarte']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '0';
+      });
+    ['ring-total', 'ring-emprestados', 'ring-atrasados', 'ring-descarte']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.hidden = true; el.innerHTML = ''; }
+      });
+  }
+
+  /** Preenche os 4 cards + anéis com as métricas recebidas. */
+  function preencheMetricasPainel(m) {
+    document.getElementById('metric-total').textContent = m.total;
+    document.getElementById('metric-emprestados').textContent = m.emprestados;
+    document.getElementById('metric-atrasados').textContent = m.atrasados;
+    document.getElementById('metric-descarte').textContent = m.paraDescarte;
+
+    // Anéis de progresso (modelo do card): cada % é um derivado
+    // dos números acima — ocupação da sala, empréstimos sobre o
+    // acervo da sala, atrasados sobre os empréstimos e descarte
+    // sobre o acervo. Sem denominador não há o que medir: anel oculto.
+    desenharAnelMetrica('ring-total', m.ocupacao && m.ocupacao.percentual);
+    desenharAnelMetrica('ring-emprestados',
+      m.total > 0 ? Math.round((m.emprestados / m.total) * 100) : null);
+    desenharAnelMetrica('ring-atrasados',
+      m.emprestados > 0 ? Math.round((m.atrasados / m.emprestados) * 100) : null);
+    desenharAnelMetrica('ring-descarte',
+      m.total > 0 ? Math.round((m.paraDescarte / m.total) * 100) : null);
+  }
+
+  /**
+   * Cards da sala escolhida. Sem sala (ou escolha vazia) volta ao
+   * zero; com sala, busca os números recortados. O mesmo guarda da
+   * sala nova vale aqui: uma troca rápida não pode deixar o
+   * resultado velho pintar no lugar da sala nova.
+   */
+  async function loadMetricasSala(salaId) {
+    if (!salaId) { zerarMetricasPainel(); return; }
+    const m = await SGA_API.getMetricas(salaId);
+    const sel = document.getElementById('mapa-sala');
+    if (sel && String(sel.value) !== String(salaId)) return;
+    preencheMetricasPainel(m);
+  }
+
   async function loadPainel() {
     try {
       const m = await SGA_API.getMetricas();
 
-      document.getElementById('metric-total').textContent = m.total;
-      document.getElementById('metric-emprestados').textContent = m.emprestados;
-      document.getElementById('metric-atrasados').textContent = m.atrasados;
-      document.getElementById('metric-descarte').textContent = m.paraDescarte;
+      // Cards: entram ZERADOS (sem anéis) até uma sala ser
+      // escolhida na barra do Mapa do Arquivo — a escolha é quem
+      // chama loadMetricasSala(). As tabelas resumo abaixo seguem
+      // com a visão do acervo inteiro, como sempre.
+      zerarMetricasPainel();
 
       // Gráficos: entram zerados e só carregam quando a sala for
       // escolhida na barra do Mapa do Arquivo (mais abaixo).
@@ -475,10 +560,10 @@
   /* ============================================================
      GRÁFICOS DO PAINEL (SVG puro, sem biblioteca externa)
 
-     1) VELOCÍMETRO da ocupação do arquivo: arco de 180° com três
-        faixas (verde até 70%, amarelo 70-90%, vermelho acima de
-        90%), agulha no valor atual e o total de pastas ocupadas
-        sobre a capacidade.
+     1) VELOCÍMETRO da ocupação do arquivo: medidor segmentado de
+        270° com abertura para baixo, 7 blocos do verde escuro ao
+        vermelho, agulha no valor atual e o total de pastas
+        ocupadas sobre a capacidade.
      2) COLUNAS AGRUPADAS mês a mês: duas colunas por mês (novos e
         descartados), com eixo Y em escala "redondada" e rótulo em
         cima de cada coluna.
@@ -488,13 +573,22 @@
      projeto bloqueia script externo).
      ============================================================ */
 
-  /** Escala do eixo Y: teto "redondo" acima do maior valor. */
+  /**
+   * Escala do eixo Y: teto "redondo" acima do maior valor.
+   *
+   * O passo (teto / 4) é que vem arredondado: assim as 5 linhas da
+   * grade caem em números legíveis (3, 6, 9, 12 em vez de 5, 10,
+   * 15, 20 para o máximo 12 — sobrava 66% de altura vazia).
+   */
   function tetoEixo(maximo) {
     if (!(maximo > 0)) return 4;
-    const magnitude = Math.pow(10, Math.floor(Math.log10(maximo)));
-    const n = maximo / magnitude;
-    const passo = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-    return passo * magnitude;
+    const bruto = maximo / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(bruto)));
+    const n = bruto / magnitude;
+    const passo = n <= 1 ? 1 : n <= 1.5 ? 1.5 : n <= 2 ? 2
+      : n <= 2.5 ? 2.5 : n <= 3 ? 3 : n <= 4 ? 4
+      : n <= 5 ? 5 : n <= 7.5 ? 7.5 : 10;
+    return passo * magnitude * 4;
   }
 
   /** Número curto no eixo: 1.2 mil em vez de 1200. */
@@ -519,6 +613,12 @@
   /**
    * Desenha o velocímetro de ocupação.
    * `ocupacao` = { ocupadas, capacidade, percentual, caixas }.
+   *
+   * Estilo do "medidor segmentado" (imagem de referência): arco de
+   * 270° com a abertura para baixo, dividido em 7 segmentos com
+   * folga entre eles, do verde escuro ao vermelho, agulha esbelta e
+   * pivô grande. O valor fica em texto ABAIXO do pivô — o centro é
+   * ocupado pela agulha.
    */
   function renderVelocimetro(ocupacao) {
     const box = document.getElementById('velocimetro');
@@ -536,10 +636,19 @@
 
     // Acima de 100% (documento em caixa cheia) o arco satura em 100.
     const pct = Math.max(0, Math.min(100, percentual));
-    const CX = 130, CY = 128, RAIO = 100, ESPESSURA = 20;
-    const SEMICENTRO = RAIO - ESPESSURA / 2;   // eixo da faixa colorida
-    // 180° = esquerda, 90° = topo, 0° = direita. Y do SVG cresce para
-    // baixo, por isso o sinal de menos no seno.
+    const CX = 130, CY = 104, RAIO = 86, ESPESSURA = 26;
+    const EIXO = RAIO - ESPESSURA / 2;   // raio médio da faixa
+    // Arco de 270°: começa em 225° (abaixo-esquerda) e termina em
+    // -45° (abaixo-direita); a abertura fica virada para baixo.
+    const A_INI = 225, A_FIM = -45;
+    const CORES = [
+      '#15803d', '#16a34a', '#65a30d', '#eab308',
+      '#f59e0b', '#ea580c', '#dc2626',
+    ];
+    const FOLGA = 5;    // graus em branco entre um segmento e outro
+    const passo = (A_INI - A_FIM) / CORES.length;
+    // 225° = abaixo-esquerda, 90° = topo, 0° = direita. Y do SVG
+    // cresce para baixo, por isso o sinal de menos no seno.
     const ponto = (graus, r) => {
       const rad = (graus * Math.PI) / 180;
       return [CX + r * Math.cos(rad), CY - r * Math.sin(rad)];
@@ -563,70 +672,81 @@
       }
       return d.join(' ');
     };
-    const deg = pct / 100 * 180;
 
-    const cor = pct >= 90 ? 'var(--danger)' : pct >= 70 ? 'var(--warning)' : 'var(--success)';
-    // Limiares em % convertidos para graus (180° = 0%, 0° = 100%).
-    const g = p => 180 - (p / 100) * 180;
-    const faixas = [
-      { a1: g(0), a2: g(70), cor: 'var(--success)' },
-      { a1: g(70), a2: g(90), cor: 'var(--warning)' },
-      { a1: g(90), a2: g(100), cor: 'var(--danger)' },
-    ];
+    const segmentos = CORES.map((cor, i) => {
+      const a1 = A_INI - i * passo - FOLGA / 2;
+      const a2 = A_INI - (i + 1) * passo + FOLGA / 2;
+      return `<path d="${arco(a1, a2, EIXO)}" fill="none" stroke="${cor}"
+                stroke-width="${ESPESSURA}" stroke-linecap="butt"/>`;
+    }).join('');
 
+    // Agulha: 0% = 225° e 100% = -45° (curso de 270°). O desenho
+    // aponta para cima e a rotação gira em torno do centro do arco.
+    const alpha = -135 + 270 * (pct / 100);
     const agulha = `
-      <g class="velo-agulha" style="transform:rotate(${(-90 + deg).toFixed(2)}deg)">
-        <path d="M ${CX} ${(CY - SEMICENTRO).toFixed(2)} L ${CX - 5} ${CY + 12} L ${CX + 5} ${CY + 12} Z"
-              fill="var(--text)"/>
+      <g class="velo-agulha" style="transform:rotate(${alpha.toFixed(2)}deg);
+              transform-origin:${CX}px ${CY}px">
+        <path d="M ${CX} ${CY - (EIXO - 4)} L ${CX - 6.5} ${CY + 9} L ${CX + 6.5} ${CY + 9} Z"
+              fill="#3f454d"/>
       </g>
-      <circle cx="${CX}" cy="${CY}" r="7" fill="var(--text)"/>`;
+      <circle cx="${CX}" cy="${CY}" r="13" fill="#4a515b"/>`;
 
     box.innerHTML = `
-      <svg class="velo-svg" viewBox="0 0 260 176" role="img"
+      <svg class="velo-svg" viewBox="0 0 260 210" role="img"
            aria-label="Ocupação do arquivo: ${percentual}% (${ocupadas} de ${capacidade} pastas)">
         <title>Ocupação do arquivo: ${percentual}% (${ocupadas} de ${capacidade} pastas)</title>
-        ${faixas.map(f => `<path d="${arco(f.a1, f.a2, SEMICENTRO)}" fill="none"
-              stroke="${f.cor}" stroke-width="${ESPESSURA}" stroke-linecap="butt"/>`).join('')}
-        <path d="${arco(180, 180 - deg, SEMICENTRO)}" fill="none" stroke="${cor}"
-              stroke-width="${ESPESSURA}" opacity=".35"/>
+        ${segmentos}
         ${agulha}
-        <text class="velo-valor" x="${CX}" y="${CY - 30}" text-anchor="middle">${percentual}%</text>
-        <text class="velo-legenda" x="${CX}" y="${CY - 12}" text-anchor="middle">ocupação</text>
-        <text class="velo-mini" x="${CX - RAIO - 6}" y="${CY + 20}" text-anchor="start">0%</text>
-        <text class="velo-mini" x="${CX + RAIO + 6}" y="${CY + 20}" text-anchor="end">100%</text>
+        <text class="velo-valor" x="${CX}" y="${CY + 80}" text-anchor="middle">${percentual}<tspan
+              class="velo-simbolo">%</tspan></text>
+        <text class="velo-legenda" x="${CX}" y="${CY + 96}" text-anchor="middle">ocupação</text>
+        <text class="velo-mini" x="${CX - 82}" y="${CY + 82}" text-anchor="end">0%</text>
+        <text class="velo-mini" x="${CX + 82}" y="${CY + 82}" text-anchor="start">100%</text>
       </svg>
-      <ul class="velo-faixas">
-        <li><i style="background:var(--success)"></i>0–70%</li>
-        <li><i style="background:var(--warning)"></i>70–90%</li>
-        <li><i style="background:var(--danger)"></i>90–100%</li>
-      </ul>
       <p class="velo-resumo">
         <strong>${ocupadas}</strong> de ${capacidade} pastas ocupadas
-        <span class="velo-nota">(${ocupacao.caixas} caixa(s) cadastrada(s))</span>
       </p>`;
   }
 
   /**
-   * Desenha o gráfico de colunas agrupadas (novos x descartados).
+   * Desenha o gráfico de LINHAS (novos x descartados).
    * `meses` = [{ rotulo, novos, descartados }].
+   *
+   * Estilo do gráfico de referência (imagem anexa): curvas suaves
+   * (Catmull-Rom convertido para Béziers cúbicos), traço grosso com
+   * ponta redonda e brilho colorido, grade só horizontal, sem linha
+   * de eixo e o último mês destacado em azul no eixo X.
+   *
+   * O viewBox usa a LARGURA REAL do card e ALTURA FIXA: assim o
+   * gráfico não cresce em altura quando a janela é larga e os dois
+   * cards do Painel fecham com a mesma medida. A largura muda com a
+   * janela, então o resize redesenha (listener no fim da seção).
    */
+  let graficoMensalDados = [];
+
   function renderGraficoMensal(meses) {
     const box = document.getElementById('grafico-mensal');
     if (!box) return;
     const dados = meses || [];
+    graficoMensalDados = dados;
 
     const maximo = dados.reduce((m, d) => Math.max(m, d.novos, d.descartados), 0);
 
     // Sem movimento nenhum os valores são ZERO, não ausência de dado:
-    // o gráfico continua desenhado (eixo, rótulos e colunas zeradas)
+    // o gráfico continua desenhado (eixo, rótulos e curvas zeradas)
     // para o usuário não concluir que a série sumiu.
     if (!dados.length) {
       box.innerHTML = '<p class="empty-state">Sem meses para exibir</p>';
       return;
     }
 
-    const L = 36, R = 8, T = 18, B = 30;   // margens
-    const W = 720, H = 250;
+    // O SVG ocupa o CONTEÚDO do card: clientWidth traz o padding
+    // junto, e offsetWidth - clientWidth é exatamente esse padding
+    // (px puro, sem depender de a UI devolver rem ou px).
+    const util = box.clientWidth - (box.offsetWidth - box.clientWidth);
+    const L = 42, R = 14, T = 20, B = 30;   // margens
+    const H = 240;                           // altura fixa (igual ao card do velo)
+    const W = util > 240 ? util : 720;       // card escondido: escala pelo CSS
     const larguraPlot = W - L - R;
     const alturaPlot = H - T - B;
     const teto = tetoEixo(maximo);
@@ -638,34 +758,57 @@
       const v = (teto / passos) * i;
       const py = y(v).toFixed(1);
       return `<line class="grafico-grade" x1="${L}" y1="${py}" x2="${W - R}" y2="${py}"/>`
-        + `<text class="grafico-eixo-y" x="${L - 7}" y="${py}" text-anchor="end" dy=".32em">${numeroEixo(v)}</text>`;
+        + `<text class="grafico-eixo-y" x="${L - 8}" y="${py}" text-anchor="end" dy=".32em">${numeroEixo(v)}</text>`;
     }).join('');
 
-    // Uma faixa por mês, com as DUAS colunas lado a lado
     const banda = larguraPlot / dados.length;
-    const LARG_BARRA = Math.min(16, Math.max(6, banda * 0.3));
-    const folga = Math.max(2, banda * 0.08);
+    const centro = i => L + banda * (i + 0.5);
+    const base = T + alturaPlot;
 
-    const corpo = dados.map((d, i) => {
-      const centro = L + banda * (i + 0.5);
-      const base = T + alturaPlot;
-      const barra = (valor, dx, classe) => {
-        if (!(valor > 0)) {
-          // zero ainda mostra a base da coluna (1px), para o mês
-          // não sumir do eixo
-          return `<rect class="${classe}" x="${(centro + dx).toFixed(1)}" y="${(base - 1).toFixed(1)}"
-                    width="${LARG_BARRA}" height="1" opacity=".25"><title>${U.esc(d.rotulo)}: 0</title></rect>`;
-        }
-        const h = Math.max(2, (valor / teto) * alturaPlot);
-        return `<rect class="${classe}" x="${(centro + dx).toFixed(1)}" y="${(base - h).toFixed(1)}"
-                  width="${LARG_BARRA}" height="${h.toFixed(1)}" rx="2">
-                  <title>${U.esc(d.rotulo)}: ${valor}</title>
-                </rect>`;
-      };
-      return barra(d.novos, -(LARG_BARRA / 2 + folga / 2), 'grafico-col c-novos')
-        + barra(d.descartados, folga / 2, 'grafico-col c-descartados')
-        + `<text class="grafico-eixo-x" x="${centro.toFixed(1)}" y="${base + 15}"
-                 text-anchor="middle">${U.esc(rotuloEixoX(d.rotulo, i, dados.length, larguraPlot))}</text>`;
+    /**
+     * Curva suave passando por TODOS os pontos: Catmull-Rom
+     * (p1,p2) -> Bézier cúbica com controles em 1/6 do trecho.
+     * Os controles de Y são cortados aos limites do plot para a
+     * curva não sair por cima/baixo da área do gráfico.
+     */
+    const curva = pts => {
+      if (pts.length < 2) return '';
+      const corte = v => Math.max(T, Math.min(base, v));
+      let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i - 1] || pts[i];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[i + 2] || p2;
+        const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+        const c1y = corte(p1[1] + (p2[1] - p0[1]) / 6);
+        const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+        const c2y = corte(p2[1] - (p3[1] - p1[1]) / 6);
+        d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}`
+          + ` ${c2x.toFixed(1)} ${c2y.toFixed(1)}`
+          + ` ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+      }
+      return d;
+    };
+
+    // Uma série = curva + pontos invisíveis com tooltip (mesma
+    // leitura de "mês: valor" que as colunas davam no mouse).
+    const serie = (campo, classe) => {
+      const pts = dados.map((d, i) => [centro(i), y(d[campo])]);
+      const alvos = pts.map((p, i) =>
+        `<circle class="grafico-ponto" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="9">`
+        + `<title>${U.esc(dados[i].rotulo)}: ${dados[i][campo]}</title></circle>`).join('');
+      return `<path class="grafico-linha ${classe}" d="${curva(pts)}"/>${alvos}`;
+    };
+
+    // Rótulos do eixo X; o mês ATUAL sai destacado (como o último
+    // dia da referência), desde que apareça no passo de exibição.
+    const rotulos = dados.map((d, i) => {
+      const txt = rotuloEixoX(d.rotulo, i, dados.length, larguraPlot);
+      if (!txt) return '';
+      const atual = i === dados.length - 1 ? ' atual' : '';
+      return `<text class="grafico-eixo-x${atual}" x="${centro(i).toFixed(1)}"`
+        + ` y="${base + 16}" text-anchor="middle">${U.esc(txt)}</text>`;
     }).join('');
 
     box.innerHTML = `
@@ -673,8 +816,9 @@
            aria-label="Documentos novos e descartados por mês (últimos ${dados.length} meses)">
         <title>Documentos novos e descartados por mês (últimos ${dados.length} meses)</title>
         ${grade}
-        ${corpo}
-        <line class="grafico-base" x1="${L}" y1="${T + alturaPlot}" x2="${W - R}" y2="${T + alturaPlot}"/>
+        ${serie('novos', 'c-novos')}
+        ${serie('descartados', 'c-descartados')}
+        ${rotulos}
       </svg>`;
   }
 
@@ -724,6 +868,19 @@
     return SGA_API.ultimosMeses(n)
       .map(c => ({ ...SGA_API.rotuloMes(c), novos: 0, descartados: 0 }));
   }
+
+  /**
+   * O viewBox do gráfico mensal acompanha a largura do card: ao
+   * redimensionar a janela ele é redesenhado (altura fixa — é ela
+   * que iguala a altura dos dois cards do Painel).
+   */
+  let timerResizeGrafico = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(timerResizeGrafico);
+    timerResizeGrafico = setTimeout(() => {
+      if (graficoMensalDados.length) renderGraficoMensal(graficoMensalDados);
+    }, 150);
+  });
 
   /* ============================================================
      MAPA DO ARQUIVO (painel): select de sala + planta da sala.
@@ -818,13 +975,16 @@
   }
 
   /**
-   * Sala escolhida -> gráficos daquela sala. Sem sala (ou com
-   * escolha vazia) volta tudo ao estado zerado. Erro de rede não
-   * pode virar tela quebrada: avisa no console e mantém o anterior.
+   * Sala escolhida -> gráficos E cards de métrica daquela sala.
+   * Sem sala (ou com escolha vazia) volta tudo ao estado zerado.
+   * Erro de rede não pode virar tela quebrada: avisa no console e
+   * mantém o anterior.
    */
   function carregaGraficosDaSala(salaId) {
-    return loadGraficosPainel(salaId || null)
-      .catch(err => console.warn('gráficos da sala:', err.message));
+    return Promise.all([
+      loadGraficosPainel(salaId || null),
+      loadMetricasSala(salaId || null),
+    ]).catch(err => console.warn('painel da sala:', err.message));
   }
 
   /** Zera os estilos inline de layout do mapa (medidas/variáveis). */
@@ -1233,6 +1393,7 @@
           descricao: document.getElementById('pesq-descricao').value.trim(),
           setor: document.getElementById('pesq-setor').value,
           status: document.getElementById('pesq-status').value,
+          salaId: document.getElementById('pesq-sala').value,
         };
         const docs = await SGA_API.searchDocumentos(filtros);
         if (minhaVez !== seqPesquisa) return; // resposta antiga, descarta
@@ -1923,6 +2084,8 @@
 
       fillSelect('ed-sala', salas, 'Selecione a sala…');
       fillSelect('doc-sala', salas, 'Selecione a sala…');
+      // Filtro de sala da aba Pesquisa: mesma lista/cache de salas.
+      fillSelect('pesq-sala', salas, 'Todas as salas');
 
       alocarCaixaPorSala();
       sincronizaEditorSala();
@@ -2305,6 +2468,16 @@
       msgs.push(`A capacidade (${cap}) é menor que as ${edArq.estantes.length} estante(s) existentes.`);
     }
 
+    // "+ Incluir estante" só enquanto houver capacidade na sala.
+    const btnEst = document.getElementById('btn-ed-incluir-estante');
+    if (btnEst) {
+      const lotada = edArq.sala && cap > 0 && edArq.estantes.length >= cap;
+      btnEst.disabled = !edArq.sala || lotada;
+      btnEst.title = lotada
+        ? `Capacidade (${cap}) atingida — aumente o campo "Capacidade (estantes)" e salve a sala.`
+        : 'Incluir estante';
+    }
+
     aviso.textContent = msgs.join(' ');
     aviso.classList.toggle('erro', !ok);
     aviso.hidden = !msgs.length;
@@ -2407,6 +2580,14 @@
 
   async function incluirEstante() {
     if (!edArq.sala) return;
+    // Capacidade da sala é limite: não dá para incluir estante além dela.
+    const cap = parseInt(document.getElementById('ed-sala-capacidade').value, 10) || 0;
+    if (cap > 0 && edArq.estantes.length >= cap) {
+      U.toast(`Capacidade da sala atingida: ${edArq.estantes.length}/${cap} estante(s). `
+        + 'Aumente o campo "Capacidade (estantes)" e salve a sala antes de incluir outra.',
+        'warning');
+      return;
+    }
     const celula = primeiraCelulaLivre();
     if (!celula) {
       const l = edArq.sala.linha || '?', c = edArq.sala.coluna || '?';
