@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261008.12';
+  const VERSAO_APP = '20261008.14';
 
   /* ============================================================
      UTILITÁRIOS
