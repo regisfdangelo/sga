@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261007.1';
+  const VERSAO_APP = '20261008.6';
 
   /* ============================================================
      UTILITÁRIOS
@@ -528,14 +528,17 @@
         270° com abertura para baixo, 7 blocos do verde escuro ao
         vermelho, agulha no valor atual e o total de pastas
         ocupadas sobre a capacidade.
-     2) COLUNAS AGRUPADAS mês a mês: duas colunas por mês (novos e
-        descartados), com eixo Y em escala "redondada" e rótulo em
-        cima de cada coluna.
+   2) LINHAS DA MOVIMENTAÇÃO dia a dia: um ano de dias (365 pontos)
+      com três séries — novos, para descarte (prazo de guarda
+      vencido) e empréstimos atrasados —, eixo Y em escala
+      "redondada" e rótulos DIÁRIOS (dd/mm) no eixo X, com o dia de
+      hoje destacado no fim (os 365 dias não cabem, então afunilam
+      de trás para frente).
 
-     Ambos são desenhados em SVG com viewBox: escalam com a largura
-     do painel sem depender de <canvas> nem de CDN (a CSP do
-     projeto bloqueia script externo).
-     ============================================================ */
+      Ambos são desenhados em SVG com viewBox: escalam com a largura
+      do painel sem depender de <canvas> nem de CDN (a CSP do
+      projeto bloqueia script externo).
+      ============================================================ */
 
   /**
    * Escala do eixo Y: teto "redondo" acima do maior valor.
@@ -558,20 +561,6 @@
   /** Número curto no eixo: 1.2 mil em vez de 1200. */
   function numeroEixo(n) {
     return n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)} mil` : String(n);
-  }
-
-  /**
-   * Abrevia a legenda do eixo X quando há mês demais para caber.
-   *
-   * Os rótulos são contados a partir do ÚLTIMO mês (e não do
-   * primeiro): assim o último nunca fica colado no penúltimo,
-   * acontecia com 12 meses em painel estreito (passo 2 exibindo
-   * out/25 nov/25 ... ago/26 set/26, com ago/set grudados).
-   */
-  function rotuloEixoX(rotulo, indice, total, largura) {
-    const passo = Math.max(1, Math.ceil(total / Math.max(2, Math.floor(largura / 42))));
-    if ((total - 1 - indice) % passo !== 0) return '';
-    return rotulo;
   }
 
   /**
@@ -673,13 +662,19 @@
   }
 
   /**
-   * Desenha o gráfico de LINHAS (novos x descartados).
-   * `meses` = [{ rotulo, novos, descartados }].
+   * Desenha o gráfico de LINHAS da movimentação DIA A DIA
+   * (novos x para descarte x empréstimos atrasados).
+   * `dias` = [{ chave, rotulo, novos, paraDescarte, atrasados }].
    *
    * Estilo do gráfico de referência (imagem anexa): curvas suaves
    * (Catmull-Rom convertido para Béziers cúbicos), traço grosso com
    * ponta redonda e brilho colorido, grade só horizontal, sem linha
-   * de eixo e o último mês destacado em azul no eixo X.
+   * de eixo e o dia atual destacado em azul no eixo X. O que muda é
+   * só o PASSO: um ano de dias no lugar de 12 meses.
+   *
+   * Rótulos do eixo X: só dias, no formato dd/mm, afunilados de
+   * trás para frente — o dia de HOJE fica sempre no eixo (e sai
+   * destacado em azul). Marcar os 365 dias poluiria o eixo.
    *
    * O viewBox usa a LARGURA e a ALTURA REAIS do card: no Painel a
    * linha dos gráficos é esticada até o fim da tela e o gráfico
@@ -687,21 +682,23 @@
    * medida). Largura/altura mudam com a janela, então o resize
    * redesenha (listener no fim da seção).
    */
-  let graficoMensalDados = [];
+  const DIAS_GRAFICO = 365;
+  let graficoMovimentoDados = [];
 
-  function renderGraficoMensal(meses) {
-    const box = document.getElementById('grafico-mensal');
+  function renderGraficoMovimento(dias) {
+    const box = document.getElementById('grafico-movimento');
     if (!box) return;
-    const dados = meses || [];
-    graficoMensalDados = dados;
+    const dados = dias || [];
+    graficoMovimentoDados = dados;
 
-    const maximo = dados.reduce((m, d) => Math.max(m, d.novos, d.descartados), 0);
+    const maximo = dados.reduce(
+      (m, d) => Math.max(m, d.novos, d.paraDescarte, d.atrasados), 0);
 
     // Sem movimento nenhum os valores são ZERO, não ausência de dado:
     // o gráfico continua desenhado (eixo, rótulos e curvas zeradas)
     // para o usuário não concluir que a série sumiu.
     if (!dados.length) {
-      box.innerHTML = '<p class="empty-state">Sem meses para exibir</p>';
+      box.innerHTML = '<p class="empty-state">Sem dias para exibir</p>';
       return;
     }
 
@@ -766,33 +763,50 @@
       return d;
     };
 
-    // Uma série = curva + pontos invisíveis com tooltip (mesma
-    // leitura de "mês: valor" que as colunas davam no mouse).
+    // Uma série = curva. O tooltip é uma ÁREA INVISÍVEL POR DIA
+    // (365 círculos de 9px sobrepostos não deixariam pegar o dia
+    // certo): o <title> do retângulo abre no mouse, com as três
+    // leituras daquele dia.
     const serie = (campo, classe) => {
       const pts = dados.map((d, i) => [centro(i), y(d[campo])]);
-      const alvos = pts.map((p, i) =>
-        `<circle class="grafico-ponto" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="9">`
-        + `<title>${U.esc(dados[i].rotulo)}: ${dados[i][campo]}</title></circle>`).join('');
-      return `<path class="grafico-linha ${classe}" d="${curva(pts)}"/>${alvos}`;
+      return `<path class="grafico-linha ${classe}" d="${curva(pts)}"/>`;
     };
 
-    // Rótulos do eixo X; o mês ATUAL sai destacado (como o último
-    // dia da referência), desde que apareça no passo de exibição.
-    const rotulos = dados.map((d, i) => {
-      const txt = rotuloEixoX(d.rotulo, i, dados.length, larguraPlot);
-      if (!txt) return '';
-      const atual = i === dados.length - 1 ? ' atual' : '';
-      return `<text class="grafico-eixo-x${atual}" x="${centro(i).toFixed(1)}"`
-        + ` y="${base + 16}" text-anchor="middle">${U.esc(txt)}</text>`;
-    }).join('');
+    const alvos = dados.map((d, i) =>
+      `<rect class="grafico-ponto" x="${(L + banda * i).toFixed(1)}" y="${T}"`
+      + ` width="${Math.max(1, banda).toFixed(1)}" height="${alturaPlot}">`
+      + `<title>${U.esc(d.rotulo)} — novos ${d.novos},`
+      + ` para descarte ${d.paraDescarte},`
+      + ` empréstimos atrasados ${d.atrasados}</title></rect>`).join('');
 
+    // Rótulos do eixo X: SÓ DIAS (dd/mm) — nada de mês no eixo.
+    // 365 dias não cabem, então afunila CONTANDO DO FIM: o dia de
+    // HOJE (o último) entra sempre e os demais caem a cada `passo`
+    // dias, o que mantém o espaçamento mínimo de 56px entre
+    // rótulos — e é o único jeito de o de hoje nunca cair fora.
+    const ultimo = dados.length - 1;
+    const passo = Math.max(1, Math.ceil(dados.length
+      / Math.max(2, Math.floor(larguraPlot / 56))));
+    const partes = [];
+    for (let i = ultimo; i >= 0; i -= passo) {
+      const atual = i === ultimo ? ' atual' : '';
+      partes.unshift(
+        `<text class="grafico-eixo-x${atual}" x="${centro(i).toFixed(1)}"`
+        + ` y="${base + 16}" text-anchor="middle">${U.esc(dados[i].rotulo)}</text>`);
+    }
+    const rotulos = partes.join('');
+
+    const titulo = 'Movimentação da sala de arquivo, dia a dia '
+      + `(últimos ${dados.length} dias)`;
     box.innerHTML = `
       <svg class="grafico-svg" viewBox="0 0 ${W} ${H}" role="img"
-           aria-label="Documentos novos e descartados por mês (últimos ${dados.length} meses)">
-        <title>Documentos novos e descartados por mês (últimos ${dados.length} meses)</title>
+           aria-label="${titulo}">
+        <title>${titulo}</title>
         ${grade}
         ${serie('novos', 'c-novos')}
-        ${serie('descartados', 'c-descartados')}
+        ${serie('paraDescarte', 'c-paradescarte')}
+        ${serie('atrasados', 'c-atrasados')}
+        ${alvos}
         ${rotulos}
       </svg>`;
   }
@@ -803,13 +817,13 @@
       zerarGraficosPainel();
       return;
     }
-    const g = await SGA_API.getGraficosPainel(12, salaId);
+    const g = await SGA_API.getGraficosPainel(DIAS_GRAFICO, salaId);
     // A sala pode ter sido trocada enquanto o fetch estava no ar:
     // o resultado velho não pode pintar no lugar da sala nova.
     const sel = document.getElementById('mapa-sala');
     if (sel && String(sel.value) !== String(salaId)) return;
     renderVelocimetro(g.ocupacao || {});
-    renderGraficoMensal(g.meses || []);
+    renderGraficoMovimento(g.dias || []);
   }
 
   /**
@@ -818,8 +832,8 @@
    * e as séries são por sala, e o total do acervo inteiro é outra
    * leitura (que a tela não mostra).
    *
-   * O gráfico mensal sai com os 12 meses em zero de verdade (eixo,
-   * rótulos e colunas zeradas), que é o que o usuário pediu. Já o
+   * O gráfico diário sai com o ano inteiro em zero de verdade (eixo,
+   * rótulos e curvas zeradas), que é o que o usuário pediu. Já o
    * velocímetro NÃO vira 0%: sem sala não há capacidade conhecida,
    * e 0% ali seria um número inventado (mesma razão do aviso de
    * "sem capacidade cadastrada" lá embaixo). Fica o recado.
@@ -831,21 +845,21 @@
         '<p class="empty-state">Selecione uma sala no Mapa do Arquivo '
         + 'para ver a ocupação dela.</p>';
     }
-    renderGraficoMensal(semDadosMensais(12));
+    renderGraficoMovimento(semDadosDiarios(DIAS_GRAFICO));
   }
 
   /**
-   * 12 meses em zero para o estado sem sala. Os rótulos saem dos
+   * Um ano em zero para o estado sem sala. Os rótulos saem dos
    * MESMOS helpers do api.js, senão o eixo X trocaria de formato
    * no instante em que a sala fosse escolhida.
    */
-  function semDadosMensais(n) {
-    return SGA_API.ultimosMeses(n)
-      .map(c => ({ ...SGA_API.rotuloMes(c), novos: 0, descartados: 0 }));
+  function semDadosDiarios(n) {
+    return SGA_API.ultimosDias(n)
+      .map(d => ({ ...d, novos: 0, paraDescarte: 0, atrasados: 0 }));
   }
 
   /**
-   * O viewBox do gráfico mensal acompanha largura E altura do card:
+   * O viewBox do gráfico diário acompanha largura E altura do card:
    * ao redimensionar a janela ele é redesenhado (o flex do Painel
    * redistribui os cards, então os dois fecham com a mesma medida).
    */
@@ -853,7 +867,7 @@
   window.addEventListener('resize', () => {
     clearTimeout(timerResizeGrafico);
     timerResizeGrafico = setTimeout(() => {
-      if (graficoMensalDados.length) renderGraficoMensal(graficoMensalDados);
+      if (graficoMovimentoDados.length) renderGraficoMovimento(graficoMovimentoDados);
     }, 150);
   });
 
@@ -874,7 +888,7 @@
    *
    * Escolher a sala carrega a SALA e os GRÁFICOS dela: a planta
    * continua abrindo pelo botão "Ver mapa" (decisão mantida), mas
-   * ocupação e série mensal passam a ser daquela sala.
+   * ocupação e movimentação (dia a dia) passam a ser daquela sala.
    *
    * Os gráficos entram zerados ao abrir a seção, então a 1ª escolha
    * também é quem "liga" o painel — não há leitura do acervo inteiro.
@@ -1540,7 +1554,9 @@
         <td>${U.esc(d.tipo)}</td>
         <td>${U.esc(d.setor)}</td>
         <td>${U.pill(d.status)}</td>
-        <td class="cell-local">${U.esc(U.locLabel(d.caixas))}</td>
+        <td class="cell-local">${U.esc(
+          d.status === 'descartado' ? '— (fora do acervo)' : U.locLabel(d.caixas)
+        )}</td>
         <td>
           <div class="table-actions">
             <button class="btn btn-sm btn-ghost" data-view="${U.esc(d.id)}">Detalhes</button>
@@ -1630,7 +1646,9 @@
       ['Data doc.', U.fmtData(d.data_documento)],
       ['Status', U.pill(d.status)],
       ['Prazo guarda', U.fmtData(d.prazo_guarda)],
-      ['Localização', U.esc(U.locLabel(d.caixas))],
+      ['Localização', U.esc(d.status === 'descartado'
+        ? '— (fora do acervo: documento descartado)'
+        : U.locLabel(d.caixas))],
       ['Observações', U.esc(d.observacoes || '—')],
     ];
     const html = rows.map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
@@ -1704,6 +1722,10 @@
     // a caixa ATUAL do documento continua selecionável para quem
     // só quer editar os outros campos sem mover a pasta.
     const caixaAtual = String(d.caixa_id || '');
+    // Descartado não guarda em caixa nenhuma (sql/19): o campo de
+    // localização fica travado avisando isso, em vez de exigir uma
+    // caixa que ele não pode voltar a ocupar.
+    const descartado = d.status === 'descartado';
     const opsCaixa = (caixas || [])
       .map(c => {
         const loc = [c.sala?.codigo, c.prateleira?.codigo].filter(Boolean).join(' / ');
@@ -1757,9 +1779,17 @@
           <span class="field-error" id="error-ed-prazo" role="alert"></span>
         </div>
         <div class="form-group">
-          <label for="ed-caixa">Caixa / Localização Física *</label>
-          <select id="ed-caixa"><option value="">Selecione…</option>${opsCaixa}</select>
+          <label for="ed-caixa">Caixa / Localização Física${descartado ? '' : ' *'}</label>
+          <select id="ed-caixa"${descartado ? ' disabled' : ''}>${
+            descartado
+              ? '<option value="">Sem caixa — documento descartado</option>'
+              : `<option value="">Selecione…</option>${opsCaixa}`
+          }</select>
           <span class="field-error" id="error-ed-caixa" role="alert"></span>
+          ${descartado
+            ? '<span class="ed-meta">Documento descartado: ele já saiu da caixa '
+              + 'e da sala do arquivo; só o histórico permanece.</span>'
+            : ''}
         </div>
         <div class="form-group">
           <label for="ed-observacoes">Observações</label>
@@ -1806,11 +1836,13 @@
       if (!categoria) { U.setError('ed-categoria', 'Selecione a categoria.'); ok = false; }
       if (!dataDoc) { U.setError('ed-data', 'Informe a data do documento.'); ok = false; }
       if (!prazo) { U.setError('ed-prazo', 'Informe o prazo de guarda.'); ok = false; }
-      if (!caixa) { U.setError('ed-caixa', 'Selecione a caixa/localização.'); ok = false; }
+      // Descartado não volta para caixa: o campo está travado e o
+      // caixa_id continua NULL (o banco reforça isso no trigger).
+      if (!caixa && !descartado) { U.setError('ed-caixa', 'Selecione a caixa/localização.'); ok = false; }
       // Limite de pastas por caixa: só confere quando a pasta MUDA de
       // caixa (manter a atual nunca é bloqueado). A leitura é feita
       // AGORA, porque a ocupação pode ter mudado desde a abertura.
-      if (ok && String(caixa) !== String(d.caixa_id || '')) {
+      if (ok && !descartado && String(caixa) !== String(d.caixa_id || '')) {
         const o = await ocupacaoDaCaixa(caixa);
         if (!o) {
           U.setError('ed-caixa', 'Não foi possível conferir a ocupação da caixa '
@@ -1831,7 +1863,8 @@
           descricao, tipo, setor, categoria,
           data_documento: dataDoc,
           prazo_guarda: prazo,
-          caixa_id: caixa,
+          // descartado: caixa_id não é enviado (permanece NULL)
+          ...(descartado ? {} : { caixa_id: caixa }),
           observacoes,
         });
         U.toast(`Documento ${d.protocolo} atualizado!`, 'success');
@@ -3325,10 +3358,15 @@
   /** Quantidade de documentos por caixa ({ caixa_id: n }). */
   async function contarDocumentosPorCaixa() {
     try {
-      const docs = await SGA_API.listTudo('documentos', '', 'caixa_id');
+      const docs = await SGA_API.listTudo('documentos', '', 'caixa_id,status');
       const conta = {};
       (docs || []).forEach(d => {
-        if (d.caixa_id) conta[d.caixa_id] = (conta[d.caixa_id] || 0) + 1;
+        // Descartado não ocupa caixa (sql/19 tira caixa_id), mas o
+        // filtro aqui garante o mesmo resultado mesmo com um banco
+        // ainda sem a migração aplicada.
+        if (d.caixa_id && d.status !== 'descartado') {
+          conta[d.caixa_id] = (conta[d.caixa_id] || 0) + 1;
+        }
       });
       return conta;
     } catch {
@@ -3405,7 +3443,9 @@
   async function ocupacaoDaCaixa(caixaId) {
     try {
       const id = String(caixaId);
-      const filtro = `&caixa_id=eq.${encodeURIComponent(id)}`;
+      // Descartado não conta como ocupante: ele já saiu da caixa
+      // (sql/19) e o filtro cobre bancos ainda sem a migração.
+      const filtro = `&caixa_id=eq.${encodeURIComponent(id)}&status=neq.descartado`;
       const [cxs, docs] = await Promise.all([
         SGA_API.listTudo('caixas', `&id=eq.${encodeURIComponent(id)}`, 'id,codigo,capacidade'),
         SGA_API.listTudo('documentos', filtro, 'id'),
@@ -3832,9 +3872,11 @@
       .map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`)
       .join('')}</dl>
       <p class="descarte-aviso">
-        O documento sai do acervo, deixa de ocupar pasta e passa a contar
-        como descarte no gráfico do painel. O log “DESCARTE” fica gravado
-        na Auditoria com o seu nome, a data e a hora.
+        O documento é retirado da caixa e deixa de constar na sala do
+        arquivo (mapa, árvore, ocupação e busca por sala), liberando a
+        vaga que ocupava. Ele passa a contar como descarte no gráfico
+        do painel e o histórico permanece: log “DESCARTE” na Auditoria
+        com o seu nome, a data, a hora e a localização anterior.
       </p>`;
 
     const footer = '<button class="btn btn-ghost" id="descartar-cancelar">Cancelar</button>'
@@ -3878,8 +3920,14 @@
           await SGA_API.descartarDocumento(d.id, confirmar);
           Modal.close();
           U.toast(`Documento ${d.protocolo} descartado por `
-            + `${(SGA_API.getStoredUser() || {}).nome || 'você'}.`, 'success');
+            + `${(SGA_API.getStoredUser() || {}).nome || 'você'}. `
+            + 'Ele saiu da caixa e da sala do arquivo; o histórico '
+            + 'permanece na Auditoria.', 'success');
           loadTemporalidade();
+          // A pasta saiu da caixa: repinta a árvore do Editar
+          // Arquivo e os resultados da Pesquisa, senão a ocupação
+          // mostrada continuaria a de antes do descarte.
+          atualizaAposMovimentacao();
         } catch (err) {
           const msg = err.message || '';
           Modal.close();

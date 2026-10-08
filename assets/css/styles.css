@@ -690,6 +690,7 @@ a { color: var(--primary); }
 
 .grafico-legenda {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   font-size: .8rem;
   color: var(--text-muted);
@@ -701,7 +702,8 @@ a { color: var(--primary); }
   display: inline-block;
 }
 .grafico-chave.k-novos { background: #22c55e; }
-.grafico-chave.k-descartados { background: var(--danger); }
+.grafico-chave.k-paradescarte { background: var(--danger); }
+.grafico-chave.k-atrasados { background: var(--primary); }
 
 /* Gráfico de linhas (estilo referência) ---------------------- */
 .grafico-svg { width: 100%; height: auto; display: block; }
@@ -718,25 +720,33 @@ a { color: var(--primary); }
   fill: var(--text-muted);
   font-family: var(--font);
 }
-/* Último mês destacado, como o último dia da referência */
+/* Último dia destacado (hoje), como na referência */
 .grafico-eixo-x.atual { fill: var(--primary); font-weight: 700; }
 
-/* Traço grosso com ponta redonda + brilho colorido embaixo */
+/* Traço fino com ponta redonda + brilho colorido embaixo. Com 365
+   pontos no eixo (1 dia ~= 2px) um traço grosso virava uma faixa:
+   2,5px devolve a leitura de linha e ainda separa as 3 séries. */
 .grafico-linha {
   fill: none;
-  stroke-width: 5;
+  stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .grafico-linha.c-novos {
   stroke: #22c55e;
-  filter: drop-shadow(0 3px 5px rgba(34, 197, 94, .4));
+  filter: drop-shadow(0 2px 3px rgba(34, 197, 94, .35));
 }
-.grafico-linha.c-descartados {
+/* Para descarte: prazo de guarda vencido (vermelho do card) */
+.grafico-linha.c-paradescarte {
   stroke: var(--danger);
-  filter: drop-shadow(0 3px 5px rgba(220, 38, 38, .35));
+  filter: drop-shadow(0 2px 3px rgba(220, 38, 38, .3));
 }
-/* Ponto invisível de hit-area: só para o tooltip do mouse */
+/* Empréstimos atrasados: azul do destaque do eixo (var(--primary)) */
+.grafico-linha.c-atrasados {
+  stroke: var(--primary);
+  filter: drop-shadow(0 2px 3px rgba(30, 64, 175, .3));
+}
+/* Retângulo invisível de hit-area (1 por dia): só para o tooltip */
 .grafico-ponto { fill: transparent; stroke: none; }
 
 /* Velocímetro ------------------------------------------------ */

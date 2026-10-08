@@ -4,8 +4,10 @@
 --
 -- PARA QUE SERVE
 -- ------------------------------------------------------------
--- O grafico de colunas do Painel ("documentos novos x descartados
--- por mes") precisa da DATA em que o documento foi descartado.
+-- O grafico de LINHAS do Painel ("movimentacao da sala, dia a dia")
+-- precisa da DATA em que o documento foi descartado e da SALA de
+-- onde ele saiu (o descarte zera o caixa_id, o unico vinculo com a
+-- sala).
 -- Ate aqui a tabela public.documentos nao tinha essa coluna: o
 -- status 'descartado' existia, mas nao ha quando ele aconteceu,
 -- e nenhuma tela do sistema marcava o descarte (so 'disponivel'
@@ -13,27 +15,51 @@
 --
 -- O QUE ESTE ARQUIVO FAZ
 -- ------------------------------------------------------------
--- 1) Cria a coluna documentos.descartado_em (timestamptz,
---    nullable). NULL = documento nunca descartado.
+-- 1) Cria as colunas de historico do descarte: documentos.descartado_em
+--    (timestamptz, NULL = nunca descartado) e documentos.descarte_sala_id
+--    (uuid) - guarda de QUAL SALA a pasta foi descartada, sem o qual o
+--    grafico do Painel nao teria como contar "descartados" da sala, ja
+--    que o caixa_id (unico link caixa->sala) zera no descarte.
 -- 2) Backfill: documentos JA com status 'descartado' recebem
---    updated_at (ou created_at) como data do descarte, para o
---    historico existente nao sumir do grafico.
+--    updated_at (ou created_at) como data do descarte, a SALA de
+--    onde sairam (lida da caixa, ou do log de auditoria quando uma
+--    rodada anterior ja tinha zerado o caixa_id) e saem da caixa
+--    em que ainda estavam (caixa_id = NULL).
 -- 3) Trigger: sempre que o status virar 'descartado', preenche
---    descartado_em = now(); se o status sair de 'descartado'
---    (documento volta ao acervo), limpa a coluna.
---    Sem isso, a data dependeria de o front lembrar de enviar o
---    campo - e qualquer UPDATE direto deixaria o grafico errado.
+--    descartado_em = now(), guarda a sala da caixa em
+--    descarte_sala_id e tira a pasta da caixa (caixa_id := NULL,
+--    INSERT ou UPDATE, venha de onde vier); se o status sair de
+--    'descartado' (documento volta ao acervo), limpa as duas.
+--    Sem isso, data e sala dependeriam de o front lembrar de enviar
+--    os campos - e qualquer UPDATE direto deixaria o grafico errado.
 -- 4) RPC descartar_documento(p_documento_id, p_confirmar):
---    marca o descarte em transacao e RECUSA quando o documento
---    esta emprestado (devolva antes) ou ja foi descartado.
+--    marca o descarte em transacao, RETIRA o documento da caixa
+--    (caixa_id = NULL) e RECUSA quando o documento esta
+--    emprestado (devolva antes) ou ja foi descartado.
 -- 5) Log de auditoria com acao 'DESCARTE': quem descartou (usuario
 --    logado), data e hora do descarte. Ver secao 5 abaixo.
+-- 6) Indice parcial em descartado_em (base da serie diaria do grafico).
 --
 -- REGRAS
 -- ------------------------------------------------------------
+-- - Descartado NAO fica guardado em caixa nenhuma: enquanto o
+--   status for 'descartado', documentos.caixa_id e' NULL (trigger
+--   + RPC + backfill). Assim a pasta/ja descartada sai da caixa,
+--   some da sala do arquivo (mapa, arvore, ocupacao e busca por
+--   sala) e devolve a vaga que ocupava. O HISTORICO permanece:
+--   - auditoria 'DESCARTE' guarda quem/quando, o prazo e a
+--     localizacao ANTERIOR (caixa_id + localizacao legivel);
+--   - trg_auditoria guarda a linha inteira de antes e de depois;
+--   - documentos.descarte_sala_id guarda a SALA do descarte (e' o
+--     que o grafico do Painel usa para contar "descartados" da
+--     sala, depois que o caixa_id zera);
+--   - a propria linha do documento continua existindo com status
+--     'descartado' (e' o que a Temporalidade/Pesquisa mostram).
 -- - Idempotente: pode ser executar mais de uma vez.
--- - O trigger e BEFORE UPDATE OF status, entao so grava quando o
---   status muda de fato (nao a cada edicao de descricao).
+-- - O trigger roda a cada INSERT/UPDATE, mas descartado_em e
+--   descarte_sala_id so mudam quando o status muda de fato (nao a
+--   cada edicao de descricao); a limpeza de caixa_id e' sempre
+--   aplicada.
 -- - A RPC e SECURITY DEFINER: assim o log 'DESCARTE' e' garantido
 --   (a funcao de auditoria e' chamada so por ela) e a validacao do
 --   prazo continua no servidor. As policies de documentos sao
@@ -56,7 +82,7 @@
 
 
 -- ============================================================
--- 1) COLUNA
+-- 1) COLUNAS (data e sala do descarte)
 -- ============================================================
 ALTER TABLE public.documentos
   ADD COLUMN IF NOT EXISTS descartado_em timestamptz;
@@ -64,31 +90,136 @@ ALTER TABLE public.documentos
 COMMENT ON COLUMN public.documentos.descartado_em IS
   'Data/hora do descarte do documento (NULL = nunca descartado). Preenchida pelo trigger trg_documentos_descarte.';
 
+-- documentos.caixa_id precisa aceitar NULL: e' exatamente o estado
+-- de um documento descartado (fora de qualquer caixa) e o front ja
+-- trata a pasta "sem caixa localizada". Sem isto o backfill de baixo
+-- falharia e o trigger do descarte nao conseguiria tirar a pasta.
+ALTER TABLE public.documentos ALTER COLUMN caixa_id DROP NOT NULL;
+
+-- HISTORICO: de QUAL SALA o documento foi descartado. Zerado o
+-- caixa_id no descarte, sem esta coluna nao ha como atribuir o
+-- descarte a uma sala (a serie "descartados" do grafico do Painel
+-- ficaria sempre zerada, ja que o vinculo caixa->sala sumiu).
+-- Guarda a sala da caixa NO MOMENTO do descarte e volta a NULL
+-- quando o documento e' devolvido ao acervo.
+ALTER TABLE public.documentos
+  ADD COLUMN IF NOT EXISTS descarte_sala_id uuid
+  REFERENCES public.salas (id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN public.documentos.descarte_sala_id IS
+  'Historico: sala de onde o documento foi descartado (NULL = nao descartado, ou devolvido ao acervo).';
+
 
 -- ============================================================
 -- 2) BACKFILL dos documentos ja descartados
+-- ------------------------------------------------------------
+-- Ordem IMPORTANTE: a SALA e capturada ANTES de qualquer outro
+-- UPDATE. Numa base que ja rodou a versao anterior do sql/19 o
+-- trigger ja existe e zera o caixa_id no primeiro UPDATE na linha
+-- (e na base ja migrada ele ja esta zerado): depois disso nao ha
+-- como saber a sala lendo a propria linha.
 -- ============================================================
+
+-- 2a) A sala sai da caixa em que o descartado ainda esta' guardado
+--     (ou estava, numa base que nunca migrou).
+UPDATE public.documentos d
+   SET descarte_sala_id = c.sala_id
+  FROM public.caixas c
+ WHERE d.caixa_id = c.id
+   AND d.status = 'descartado'
+   AND d.descarte_sala_id IS NULL;
+
+-- 2b) Recuperacao de quem JA perdeu o caixa_id (rodada anterior do
+--     sql/19): a sala sai do log de auditoria, que guarda a linha
+--     ANTES do UPDATE (dados_antes.caixa_id). Comparacao em texto
+--     para nao depender de cast de uuid invalido; so mexe em
+--     descartado que ainda nao tem sala registrada.
+UPDATE public.documentos d
+   SET descarte_sala_id = c.sala_id
+  FROM public.auditoria a
+  JOIN public.caixas c
+    ON c.id::text = a.dados_antes->>'caixa_id'
+ WHERE a.tabela = 'documentos'
+   AND a.acao IN ('UPDATE', 'DESCARTE')
+   AND a.registro_id = d.id::text
+   AND a.dados_antes->>'caixa_id' IS NOT NULL
+   AND a.dados_depois->>'caixa_id' IS NULL
+   AND d.status = 'descartado'
+   AND d.descarte_sala_id IS NULL;
+
+-- 2c) Data do descarte dos documentos JA marcados.
 UPDATE public.documentos
    SET descartado_em = COALESCE(updated_at, created_at)
  WHERE status = 'descartado'
    AND descartado_em IS NULL;
 
+-- 2d) Documentos descartados ANTES desta regra ainda apontavam para
+--     a caixa em que estavam guardados: tiralos de la e o que faz a
+--     pasta deixar de constar na sala do arquivo. O UPDATE e' logado
+--     por trg_auditoria (sql/02) com o caixa_id antigo em
+--     dados_antes, entao a localizacao anterior nao se perde.
+UPDATE public.documentos
+   SET caixa_id = NULL
+ WHERE status = 'descartado'
+   AND caixa_id IS NOT NULL;
+
 
 -- ============================================================
--- 3) TRIGGER: status -> 'descartado' preenche a data
+-- 3) TRIGGER: status -> 'descartado' preenche a data, GUARDA a
+--    sala da caixa e TIRA a pasta da caixa (descartado nao e'
+--    guardado em lugar nenhum)
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.fn_documentos_descarte() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+  v_caixa public.caixas.id%TYPE;
 BEGIN
-  IF NEW.status IS DISTINCT FROM OLD.status THEN
+  -- Regra do acervo: enquanto a linha for 'descartado', ela NAO
+  -- tem caixa. Vale para INSERT (inclusao/importacao direta) e
+  -- para QUALQUER UPDATE (RPC descartar_documento ou UPDATE
+  -- direto no PostgREST): caixa_id vai para NULL, a vaga da
+  -- caixa e' liberada e a pasta sai da sala do arquivo. A
+  -- localizacao anterior fica no historico (auditoria).
+  IF NEW.status = 'descartado' THEN
+    -- A caixa da pasta e' a de ANTES (a mesma linha pode estar
+    -- limpando o caixa_id junto). Dessa caixa nasce a SALA que
+    -- fica guardada em descarte_sala_id: com o caixa_id zerado
+    -- e' a unica pista de sala que o grafico do Painel tem para
+    -- contar os descartados da sala. Guarda-se ANTES de zerar.
+    IF NEW.descarte_sala_id IS NULL THEN
+      IF TG_OP = 'UPDATE' THEN
+        v_caixa := COALESCE(NEW.caixa_id, OLD.caixa_id);
+      ELSE
+        v_caixa := NEW.caixa_id;
+      END IF;
+
+      IF v_caixa IS NOT NULL THEN
+        SELECT cx.sala_id
+          INTO NEW.descarte_sala_id
+          FROM public.caixas cx
+         WHERE cx.id = v_caixa;
+      END IF;
+    END IF;
+
+    NEW.caixa_id := NULL;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'descartado' THEN
+      -- NULL se ja veio com data (importacao); senao, agora
+      NEW.descartado_em := COALESCE(NEW.descartado_em, now());
+    END IF;
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
     IF NEW.status = 'descartado' THEN
       -- NULL se ja foi descartado antes (nao sobrescreve a data real)
       NEW.descartado_em := COALESCE(NEW.descartado_em, now());
     ELSE
-      -- voltou para o acervo: a data do descarte deixa de valer
+      -- voltou para o acervo: a data e a sala do descarte deixam
+      -- de valer (a pasta volta a ser atribuida pela caixa)
       NEW.descartado_em := NULL;
+      NEW.descarte_sala_id := NULL;
     END IF;
   END IF;
   RETURN NEW;
@@ -97,8 +228,11 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_documentos_descarte ON public.documentos;
 
+-- BEFORE UPDATE (sem a clausula OF status) de proposito: a
+-- parte do caixa_id precisa valer tambem quando um update nao
+-- mexe no status - senao um descartado voltaria para a caixa.
 CREATE TRIGGER trg_documentos_descarte
-  BEFORE UPDATE OF status ON public.documentos
+  BEFORE INSERT OR UPDATE ON public.documentos
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_documentos_descarte();
 
@@ -124,6 +258,7 @@ DECLARE
   v_dias    int;
   v_clientes int;
   v_antes   jsonb;
+  v_local   text;
 BEGIN
   SELECT * INTO v_doc
     FROM public.documentos d
@@ -170,6 +305,16 @@ BEGIN
     END IF;
   END IF;
 
+  -- Localizacao legivel da caixa que o documento ocupava: ela
+  -- sai daqui para o historico (o caixa_id vira NULL em seguida).
+  SELECT concat_ws(' / ', cx.codigo, s.codigo, e.codigo, p.codigo)
+    INTO v_local
+    FROM public.caixas cx
+    LEFT JOIN public.salas s       ON s.id = cx.sala_id
+    LEFT JOIN public.estantes e    ON e.id = cx.estante_id
+    LEFT JOIN public.prateleiras p ON p.id = cx.prateleira_id
+   WHERE cx.id = v_doc.caixa_id;
+
   -- Foto do estado ANTES, capturada aqui: depois do UPDATE a linha
   -- ja esta 'descartado' e o "antes" seria mentira.
   v_antes := jsonb_build_object(
@@ -177,12 +322,20 @@ BEGIN
     'protocolo',    v_doc.protocolo,
     'setor',        v_doc.setor,
     'caixa_id',     v_doc.caixa_id,
+    'localizacao',  v_local,
     'prazo_guarda', v_doc.prazo_guarda,
     'descartado_em', v_doc.descartado_em
   );
 
+  -- Descarte: sai do acervo E da caixa. caixa_id = NULL e' o que
+  -- faz a pasta deixar de constar na sala do arquivo (mapa,
+  -- arvore, ocupacao e busca por sala) e liberar a vaga; a
+  -- localizacao de antes continua no historico (v_antes acima) e a
+  -- SALA da caixa e' guardada pelo trigger em descarte_sala_id
+  -- (historico que o grafico do Painel usa por sala).
   UPDATE public.documentos
-     SET status = 'descartado'
+     SET status   = 'descartado',
+         caixa_id = NULL
    WHERE id = p_documento_id;
 
   -- Log de auditoria dedicado ('DESCARTE'). O UPDATE acima JA gera
@@ -213,8 +366,10 @@ GRANT EXECUTE ON FUNCTION public.descartar_documento(uuid, boolean) TO authentic
 --   - QUANDO           -> criado_em (default now()) e
 --                        dados_depois.descartado_em (o trigger)
 --   - O QUE            -> protocolo, prazo de guarda, status de
---                        partida e se houve confirmacao para
---                        descartar antes do prazo
+--                        partida, a localizacao ANTERIOR (caixa
+--                        em que estava, dados_antes.localizacao)
+--                        e se houve confirmacao para descartar
+--                        antes do prazo
 --
 -- Por que uma funcao a parte e nao um INSERT dentro da RPC?
 --   O sql/05 revogou o INSERT em auditoria do papel authenticated
@@ -306,6 +461,9 @@ BEGIN
        'descartado_em',  v_doc.descartado_em,
        'protocolo',      v_doc.protocolo,
        'prazo_guarda',   v_doc.prazo_guarda,
+       -- NULL = a pasta ja nao esta guardada em nenhuma caixa
+       -- (a de antes esta em dados_antes.caixa_id/.localizacao).
+       'caixa_id',       v_doc.caixa_id,
        'confirmacao',    COALESCE(p_confirmado, false)
      ));
 END;
@@ -317,7 +475,7 @@ REVOKE ALL ON FUNCTION public.fn_auditar_descarte(uuid, jsonb, boolean)
 
 
 -- ============================================================
--- 6) INDICE para o grafico mensal (descartado_em por mes)
+-- 6) INDICE para a serie diaria do grafico (descartado_em por dia)
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_documentos_descartado_em
   ON public.documentos (descartado_em)
@@ -327,11 +485,13 @@ CREATE INDEX IF NOT EXISTS idx_documentos_descartado_em
 -- ============================================================
 -- VERIFICACAO
 -- ------------------------------------------------------------
--- a) coluna existe (esperado: descartado_em | timestamptz)
+-- a) colunas existem (esperado: descartado_em | timestamptz e
+--    descarte_sala_id | uuid)
 SELECT column_name, data_type
   FROM information_schema.columns
  WHERE table_schema = 'public' AND table_name = 'documentos'
-   AND column_name = 'descartado_em';
+   AND column_name IN ('descartado_em', 'descarte_sala_id')
+ ORDER BY column_name;
 -- b) trigger criado
 -- SELECT tgname, pg_get_triggerdef(oid) FROM pg_trigger
 --  WHERE tgrelid = 'public.documentos'::regclass
@@ -348,12 +508,26 @@ SELECT column_name, data_type
 --   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 --  WHERE n.nspname = 'public' AND p.proname = 'fn_auditar_descarte';
 --    esperado: user_chama = false
--- e) documento de teste: descartar -> status/descartado_em
--- SELECT protocolo, status, descartado_em FROM public.documentos
+-- e) documento de teste: descartar -> status/descartado_em,
+--    descarte_sala_id (sala de origem) e caixa_id NULL
+-- SELECT protocolo, status, descartado_em, descarte_sala_id, caixa_id
+--   FROM public.documentos
 --  WHERE status = 'descartado' ORDER BY descartado_em DESC LIMIT 10;
--- f) o log do descarte
+-- f) NENHUM descartado pode continuar em caixa (esperado: 0)
+SELECT count(*) AS descartados_em_caixa
+  FROM public.documentos
+ WHERE status = 'descartado' AND caixa_id IS NOT NULL;
+-- h) descartados SEM sala registrada (esperado: 0). Sobra NULL so
+--    se a caixa nao tinha sala ou se a sala foi apagada — e' o unico
+--    descarte que o grafico da sala nao consegue contar.
+SELECT count(*) AS descartados_sem_sala
+  FROM public.documentos
+ WHERE status = 'descartado' AND descarte_sala_id IS NULL;
+-- g) o log do descarte (a localizacao de antes e' o historico)
 -- SELECT criado_em, usuario_email, usuario_perfil,
---        dados_antes->>'status' AS antes,
+--        dados_antes->>'status'    AS antes,
+--        dados_antes->>'localizacao' AS estava_em,
+--        dados_depois->>'caixa_id' AS caixa_depois,
 --        dados_depois->>'descartado_em' AS descartado_em,
 --        dados_depois->>'confirmacao' AS confirmacao
 --   FROM public.auditoria

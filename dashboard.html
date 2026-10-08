@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261007.1">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261008.6">
 </head>
 <body class="app-page">
 
@@ -159,7 +159,7 @@
             </article>
           </div>
 
-          <!-- Gráficos: velocímetro de ocupação + colunas novos/descartados -->
+          <!-- Gráficos: velocímetro de ocupação + linhas dia a dia -->
           <div class="grid-graficos">
             <article class="panel">
               <header class="panel-header">
@@ -172,13 +172,14 @@
 
             <article class="panel">
               <header class="panel-header">
-                <h3>Documentos novos e descartados por mês</h3>
+                <h3>Movimentação da sala de arquivo (dia a dia)</h3>
                 <div class="grafico-legenda">
                   <span class="legenda-item"><i class="grafico-chave k-novos"></i>Novos</span>
-                  <span class="legenda-item"><i class="grafico-chave k-descartados"></i>Descartados</span>
+                  <span class="legenda-item"><i class="grafico-chave k-paradescarte"></i>Para descarte</span>
+                  <span class="legenda-item"><i class="grafico-chave k-atrasados"></i>Empréstimos atrasados</span>
                 </div>
               </header>
-              <div class="panel-body" id="grafico-mensal">
+              <div class="panel-body" id="grafico-movimento">
                 <p class="empty-state">Carregando…</p>
               </div>
             </article>
@@ -807,8 +808,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261007.1"></script>
-  <script src="assets/js/api.js?v=20261007.1"></script>
-  <script src="assets/js/app.js?v=20261007.1"></script>
+  <script src="assets/js/config.js?v=20261008.6"></script>
+  <script src="assets/js/api.js?v=20261008.6"></script>
+  <script src="assets/js/app.js?v=20261008.6"></script>
 </body>
 </html>

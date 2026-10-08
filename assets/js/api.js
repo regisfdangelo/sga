@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261007.1';
+  const versao = '20261008.6';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -587,47 +587,93 @@ const SGA_API = (() => {
      Gráficos do Painel
      ---------------------------------------------------------- */
 
-  /** Rótulo curto do mês (jan/26) a partir da chave YYYY-MM. */
-  const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
-    'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-
-  /** Converte 'YYYY-MM' em { chave, rotulo }. */
-  function rotuloMes(chave) {
-    const [a, m] = String(chave).split('-');
-    const mi = parseInt(m, 10) - 1;
-    return {
-      chave,
-      rotulo: `${MESES_CURTOS[mi] || '?'}/${String(a).slice(2)}`,
-    };
+  /** Dia local (YYYY-MM-DD) de um timestamp ISO; null se vazio/inválido. */
+  function diaDe(iso) {
+    if (!iso) return null;
+    const s = String(iso);
+    // Coluna date (YYYY-MM-DD) chega como texto puro: o dia e' o
+    // proprio texto. Passar por new Date() correria o dia para TRAS
+    // em quem estiver a leste de Greenwich ('2026-10-05' vira
+    // 2026-10-04T21:00 local) e o vencimento errado jogaria todo o
+    // atraso um dia para baixo.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      + `-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  /** Os últimos N meses, do mais antigo para o atual (YYYY-MM). */
-  function ultimosMeses(n) {
+  /** Soma N dias a uma chave YYYY-MM-DD (dia local, sem Timezone). */
+  function somaDias(chave, n) {
+    const [a, m, d] = String(chave).split('-').map(Number);
+    const dt = new Date(a, m - 1, d + n);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+      + `-${String(dt.getDate()).padStart(2, '0')}`;
+  }
+
+  /**
+   * Os últimos N dias (inclusive hoje), do mais antigo para o
+   * atual, já rotulados: `{ chave, rotulo }`.
+   *
+   * - chave: 'YYYY-MM-DD' — compara em string, na ordem cronológica;
+   * - rotulo: 'DD/MM' — o rótulo do dia no eixo X.
+   */
+  function ultimosDias(n) {
     const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
     const saida = [];
     for (let i = n - 1; i >= 0; i--) {
-      const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
-      saida.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+      const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - i);
+      const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        + `-${String(d.getDate()).padStart(2, '0')}`;
+      saida.push({
+        chave,
+        rotulo: `${chave.slice(8, 10)}/${chave.slice(5, 7)}`,
+      });
     }
     return saida;
   }
 
   /**
-   * Colunas do documento usadas pelos gráficos. `descartado_em`
-   * só existe depois do sql/19: se o banco ainda não tiver a
-   * coluna, caímos no `updated_at` (mesma semântica aproximada) e
-   * a tela segue funcionando com a série "descartados".
+   * Colunas do documento usadas pelos gráficos, da mais completa
+   * para a mais enxuta. `descartado_em`/`descarte_sala_id` só
+   * existem depois do sql/19: se o banco ainda não as tiver,
+   * 42703 (undefined_column) derruba uma tentativa e caímos na
+   * seguinte — a tela continua funcionando, só sem a data real do
+   * descarte (cai em `updated_at`) e sem a sala de onde saiu.
+   * `prazo_guarda` é de origem (obrigatório no cadastro), sempre
+   * existe.
    */
-  const COLS_GRAFICO = 'id,caixa_id,status,created_at,updated_at,descartado_em';
-  const COLS_GRAFICO_SEM_DESCARTE = 'id,caixa_id,status,created_at,updated_at';
+  const COLS_GRAFICO = 'id,caixa_id,status,prazo_guarda,created_at,updated_at,'
+    + 'descartado_em,descarte_sala_id';
+  const COLS_GRAFICO_SEM_SALA_DESCARTE = 'id,caixa_id,status,prazo_guarda,'
+    + 'created_at,updated_at,descartado_em';
+  const COLS_GRAFICO_SEM_DESCARTE = 'id,caixa_id,status,prazo_guarda,'
+    + 'created_at,updated_at';
+
+  /** 42703 = undefined_column (o PostgREST devolve `code` como texto). */
+  const colunaAusente = err => {
+    const msg = err && (err.message || '');
+    return String(err && err.code) === '42703' || /column .* does not exist/i.test(msg);
+  };
 
   /**
-   * Série mensal (novos x descartados) e ocupação do arquivo.
+   * Movimentação DIA A DIA (um ano) + ocupação do arquivo.
    *
-   * - novos: contagem por mês de `created_at`.
-   * - descartados: só o que está com status 'descartado', agrupado
-   *   pela data do descarte (descartado_em, ou updated_at quando o
-   *   banco ainda não tem a coluna do sql/19).
+   * - novos: contagem por dia de `created_at`.
+   * - paraDescarte: ESTOQUE de documentos com prazo de guarda
+   *   VENCIDO naquele dia e ainda no acervo — vale de
+   *   max(criação, vencimento) até o dia do descarte (exclusive;
+   *   nesse dia o card também já não o conta). É o card "Para
+   *   Descarte" do Painel lido dia a dia, não uma contagem de
+   *   descartes feitos.
+   * - atrasados: empréstimo ATRASADO naquele dia — já venceu
+   *   (data_devolucao_prevista anterior ao dia) e ainda não foi
+   *   devolvido (saiu no dia ou antes, e a devolução é depois dele
+   *   ou não existe). Sem data de vencimento nunca conta. É um
+   *   ESTOQUE diário: a curva sobe quando um empréstimo vence em
+   *   aberto e cai na devolução (mesmo critério do card
+   *   "Atrasados" do Painel, só que no dia a dia).
    * - ocupação: documentos que ocupam espaço físico (têm caixa e
    *   não foram descartados) sobre a capacidade das caixas.
    *
@@ -635,12 +681,16 @@ const SGA_API = (() => {
    * Arquivo" escolhe no Painel). O vínculo é
    * documentos.caixa_id -> caixas.id -> caixas.sala_id, então:
    *   - só entram documentos cuja caixa está na sala;
+   *   - documento já descartado continua valendo nos dias ANTES
+   *     do descarte, e a sala dele é a de onde saiu
+   *     (descarte_sala_id): o descarte zera o caixa_id, e sem
+   *     este histórico a série da sala perderia esses dias;
    *   - a capacidade é a soma das caixas DA SALA;
    *   - documento sem caixa não pertence a sala nenhuma e fica de
    *     fora (não dá para atribuí-lo a uma sala sem inventar).
    * Sem `salaId` o cálculo é o global de antes (acervo inteiro).
    */
-  async function getGraficosPainel(meses = 12, salaId = null) {
+  async function getGraficosPainel(dias = 365, salaId = null) {
     const filtro = salaId ? String(salaId) : '';
 
     // As caixas primeiro: é delas que sai a capacidade e o vínculo
@@ -663,45 +713,132 @@ const SGA_API = (() => {
 
     const pertence = doc => {
       if (!filtro) return true;
-      return !!doc.caixa_id && caixasDaSala.has(doc.caixa_id);
+      return (!!doc.caixa_id && caixasDaSala.has(doc.caixa_id))
+        || (!!doc.descarte_sala_id && String(doc.descarte_sala_id) === filtro);
     };
 
-    let linhas;
-    try {
-      linhas = await listTudo('documentos', '&order=created_at,id', COLS_GRAFICO);
-    } catch (err) {
-      // 42703 = undefined_column: banco ainda sem o sql/19 aplicado.
-      // O PostgREST devolve `code` como texto; aceitamos os dois tipos.
-      const msg = err && (err.message || '');
-      if (String(err && err.code) !== '42703' && !/column .* does not exist/i.test(msg)) throw err;
-      linhas = await listTudo('documentos', '&order=created_at,id', COLS_GRAFICO_SEM_DESCARTE);
+    // Documentos: tenta a lista completa e vai "caindo de coluna"
+    // enquanto o banco não tiver o sql/19 inteiro aplicado.
+    let linhas = null;
+    for (const cols of [COLS_GRAFICO, COLS_GRAFICO_SEM_SALA_DESCARTE,
+      COLS_GRAFICO_SEM_DESCARTE]) {
+      try {
+        linhas = await listTudo('documentos', '&order=created_at,id', cols);
+        break;
+      } catch (err) {
+        if (!colunaAusente(err)) throw err;
+      }
     }
 
-    const documentos = (linhas || []).filter(pertence);
-    const chaves = ultimosMeses(meses);
-    const noPeriodo = new Set(chaves);
-    const novos = {};
-    const descartados = {};
-    chaves.forEach(c => { novos[c] = 0; descartados[c] = 0; });
+    // Empréstimos: base da série "atrasados". Falha na leitura não
+    // pode derrubar o gráfico — as outras duas séries continuam
+    // saindo.
+    const emprestimos = await listTudo('emprestimos', '&order=data_emprestimo,id',
+      'documento_id,data_emprestimo,data_devolucao_prevista,data_devolucao_real')
+      .catch(() => []);
 
-    /** Mês (YYYY-MM) de um timestamp ISO, no fuso do navegador. */
-    const mesDe = iso => {
-      if (!iso) return null;
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return null;
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    };
+    const documentos = (linhas || []).filter(pertence);
+
+    // Janela: um ano de dias, do mais antigo ao de hoje.
+    const janela = ultimosDias(Math.max(1, dias));
+    const n = janela.length;
+    const posicao = new Map(janela.map((d, i) => [d.chave, i]));
+    const novos = new Array(n).fill(0);
+    const paraDescarte = new Array(n).fill(0);
+    const atrasados = new Array(n).fill(0);
+
+    documentos.forEach(d => {
+      const criado = diaDe(d.created_at);
+      if (criado !== null && posicao.has(criado)) novos[posicao.get(criado)]++;
+    });
+
+    // Para descarte: ESTOQUE de documentos com prazo de guarda
+    // vencido naquele dia e ainda no acervo (mesmo criterio do card
+    // "Para Descarte" do Painel, so que dia a dia). Em vez de varrer
+    // 365 dias para cada documento, marca +1 no dia em que ele
+    // vence (ou na criacao, se for depois) e -1 no dia do descarte
+    // e faz um prefixo so.
+    const deltaDescarte = new Array(n + 1).fill(0);
+    documentos.forEach(d => {
+      const prazo = diaDe(d.prazo_guarda);
+      if (prazo === null) return;          // sem prazo nunca vence
+
+      // Abertura: max(criacao, vencimento) — antes de criado nao
+      // existia; antes de vencido ainda estava no prazo.
+      const criado = diaDe(d.created_at);
+      const inicio = criado !== null && criado > prazo ? criado : prazo;
+      let a;
+      if (inicio <= janela[0].chave) a = 0;
+      else if (posicao.has(inicio)) a = posicao.get(inicio);
+      else return;
+
+      // Fechamento: nao descartado segue ate o fim da janela;
+      // descartado sai no dia do descarte (no proprio dia ja nao
+      // conta, como no card). Data desconhecida = ja saiu.
+      let b = n;
+      if (d.status === 'descartado') {
+        const quando = diaDe(d.descartado_em || d.updated_at);
+        if (quando === null) return;
+        if (quando <= janela[0].chave) return;
+        b = posicao.has(quando) ? posicao.get(quando) : n;
+      }
+
+      if (b > a) { deltaDescarte[a]++; deltaDescarte[b]--; }
+    });
+
+    let emDescarte = 0;
+    for (let i = 0; i < n; i++) {
+      emDescarte += deltaDescarte[i];
+      paraDescarte[i] = emDescarte;
+    }
+
+    // Atrasados: em vez de varrer 365 dias para cada empréstimo,
+    // marca +1 no primeiro dia atrasado e -1 no dia da devolução
+    // (diferença acumulada) e faz um prefixo só.
+    const idsDaSala = filtro ? new Set(documentos.map(d => d.id)) : null;
+    const delta = new Array(n + 1).fill(0);
+    (emprestimos || []).forEach(e => {
+      if (idsDaSala && !idsDaSala.has(e.documento_id)) return;
+
+      const saida = diaDe(e.data_emprestimo);
+      const vencimento = diaDe(e.data_devolucao_prevista);
+      // Sem data de vencimento o empréstimo nunca é atrasado (mesma
+      // leitura do card "Atrasados" do Painel).
+      if (saida === null || vencimento === null) return;
+
+      // O atraso comeca no dia SEGUINTE ao vencimento (no dia do
+      // vencimento ainda esta no prazo) e nunca antes da saida.
+      const atrasoDe = somaDias(vencimento, 1);
+      const abertura = saida > atrasoDe ? saida : atrasoDe;
+
+      // Abertura: antes da janela o atraso ja existia, dentro dela
+      // conta do proprio dia, depois dela nao entra no grafico.
+      let a;
+      if (abertura <= janela[0].chave) a = 0;
+      else if (posicao.has(abertura)) a = posicao.get(abertura);
+      else return;
+
+      // Fechamento: sem devolucao segue atrasado ate' o fim da
+      // janela; devolvido antes do atraso nao conta; depois do fim
+      // da janela, n; no meio, ate' o dia ANTERIOR ao da devolucao.
+      let b = n;
+      const devolucao = diaDe(e.data_devolucao_real);
+      if (devolucao !== null) {
+        if (devolucao <= janela[0].chave) return;
+        b = posicao.has(devolucao) ? posicao.get(devolucao) : n;
+      }
+
+      if (b > a) { delta[a]++; delta[b]--; }
+    });
+
+    let comAtraso = 0;
+    for (let i = 0; i < n; i++) {
+      comAtraso += delta[i];
+      atrasados[i] = comAtraso;
+    }
 
     const porCaixa = {};
     documentos.forEach(d => {
-      const criado = mesDe(d.created_at);
-      if (criado && noPeriodo.has(criado)) novos[criado]++;
-
-      if (d.status === 'descartado') {
-        const quando = mesDe(d.descartado_em || d.updated_at || d.created_at);
-        if (quando && noPeriodo.has(quando)) descartados[quando]++;
-      }
-
       // Ocupação: documento descartado ou sem caixa não ocupa espaço
       if (d.caixa_id && d.status !== 'descartado') {
         porCaixa[d.caixa_id] = (porCaixa[d.caixa_id] || 0) + 1;
@@ -713,7 +850,12 @@ const SGA_API = (() => {
 
     return {
       sala_id: filtro || null,
-      meses: chaves.map(c => ({ ...rotuloMes(c), novos: novos[c], descartados: descartados[c] })),
+      dias: janela.map((dia, i) => ({
+        ...dia,
+        novos: novos[i],
+        paraDescarte: paraDescarte[i],
+        atrasados: atrasados[i],
+      })),
       ocupacao: {
         ocupadas,
         capacidade,
@@ -888,11 +1030,9 @@ const SGA_API = (() => {
     transferirCaixa,
     getMetricas,
     getGraficosPainel,
-    // Reexportados para o Painel montar o estado zerado com os MESMOS
-    // rótulos que os dados reais trazem (mes/ano).
-    MESES_CURTOS,
-    rotuloMes,
-    ultimosMeses,
+    // Reexportado para o Painel montar o estado zerado com os MESMOS
+    // rótulos (dd/mm) que os dados reais trazem.
+    ultimosDias,
     descartarDocumento,
     searchDocumentos,
     listarUsuarios,

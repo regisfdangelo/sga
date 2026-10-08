@@ -35,9 +35,11 @@
 --   (o erro de teste continua visivel na arvore); ela apenas
 --   deixa de aceitar pastas novas ate' uma delas ser movida
 --   para fora.
--- - Conta TODOS os documentos da caixa, inclusive os com status
---   'descartado' - mesma contagem do restante do sistema
---   (RPC remover_caixa e arvore do Editar Arquivo).
+-- - Conta os documentos QUE ESTAO NA CAIXA (caixa_id = caixa).
+--   Descartados nao contam: pelo sql/19 eles saem da caixa
+--   (caixa_id = NULL), entao nao ocupam vaga nem aparecem aqui -
+--   mesma contagem do restante do sistema (RPC remover_caixa e
+--   arvore do Editar Arquivo).
 --
 -- Onde executar: Supabase Dashboard > SQL Editor > New query > Run.
 -- Ordem: apos 19_descarte_documento.sql.
