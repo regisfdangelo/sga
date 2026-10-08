@@ -813,8 +813,12 @@ a { color: var(--primary); }
        (rótulo com a descrição da estante na extremidade de FORA
        do quadrado) e, dentro do quadrado, a grade uniforme de
        todas as caixas da estante — só a cor: verde = vazia (0%),
-       laranja = parcial, cinza = cheia; a descrição da caixa
-       aparece no tooltip do mouse.
+       amarela = parcial, cinza = cheia, vermelha = cheia com
+       TODAS as pastas p/ descarte; caixa com ALGUMA pasta p/
+        descarte (parcial ou cheia) leva o ✓ vermelho no centro;
+        o CLIQUE na caixa abre o modal com as pastas/documentos e
+        o status de cada um; a descrição da caixa aparece no
+        tooltip do mouse.
    ============================================================ */
 
 /* O mapa abre em pop-up em tela cheia, então no Painel esse painel
@@ -867,7 +871,10 @@ a { color: var(--primary); }
   height: 15px;
   font-size: 0;
   box-shadow: none;
+  cursor: default;   /* só a caixa da planta é clicável */
 }
+/* O ✓ da legenda é menor que o das caixas (swatch de 15px). */
+.mapa-legenda .mapa-quad.tem-descarte::after { font-size: 11px; }
 
 /* Pop-up em tela cheia ------------------------------------- */
 .mapa-popup[hidden] { display: none; }
@@ -1020,7 +1027,7 @@ a { color: var(--primary); }
   height: var(--mapa-quad-lado, 26px);
   border-radius: 5px;
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
-  cursor: help;
+  cursor: pointer;
   transition: transform .12s ease, box-shadow .12s ease;
 }
 .mapa-quad:hover {
@@ -1030,19 +1037,19 @@ a { color: var(--primary); }
   z-index: 1;
 }
 .mapa-quad.vazio   { background: #22c55e; }
-.mapa-quad.parcial { background: #f97316; }
+.mapa-quad.parcial { background: #facc15; }   /* amarela */
 .mapa-quad.cheia   { background: #94a3b8; }   /* cinza claro */
-/* Caixa cujas pastas JÁ são todas para descarte: vermelha.
+/* Caixa CHEIA cujas pastas JÁ são todas para descarte: vermelha.
    Não leva a marca ✓ — a cor já é o sinal. */
 .mapa-quad.descarte { background: #dc2626; }
-/* Caixa cheia com pastas ATIVAS e para descarte: degradê
-   cinza claro -> verde -> vermelho (ordem pedida). */
+/* Caixa cheia com pastas ATIVAS e para descarte: MESMO cinza da
+   cheia — o sinal é o ✓ vermelho (.tem-descarte), não a cor. */
 .mapa-quad.misto {
-  background: linear-gradient(135deg, #94a3b8 0%, #22c55e 50%, #dc2626 100%);
+  background: #94a3b8;
 }
 /* Marca de confirmação: caixa com ALGUMA pasta para descarte
    (não todas) ganha o ✓ vermelho centralizado; halo branco p/
-   continuar legível sobre laranja, cinza e o degradê. */
+   continuar legível sobre a amarela e o cinza. */
 .mapa-quad.tem-descarte { position: relative; }
 .mapa-quad.tem-descarte::after {
   content: '\2713';
@@ -1412,6 +1419,19 @@ td.cell-local { white-space: nowrap; }
 .status-atrasado    { background: var(--danger-bg); color: var(--danger); }
 .status-devolvido   { background: var(--info-bg); color: var(--primary); }
 
+/* "Para descarte": prazo de guarda já vencido dentro da caixa
+   (etiqueta do modal de conteúdo da caixa — não é status). */
+.tag-descarte {
+  display: inline-block;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: .72rem;
+  font-weight: 700;
+  padding: .1rem .5rem;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
 .table-actions {
   display: flex;
   align-items: center;
@@ -1553,6 +1573,11 @@ td.cell-local { white-space: nowrap; }
 .modal-overlay[hidden] {
   display: none !important;
 }
+
+/* Aberto por cima do pop-up do MAPA (z-index 300): precisa passar
+   na frente dele e ficar mais largo p/ a tabela das pastas. */
+.modal-overlay.sobre-mapa { z-index: 400; }
+.modal-overlay.sobre-mapa .modal { max-width: 780px; }
 
 .modal-overlay {
   position: fixed;

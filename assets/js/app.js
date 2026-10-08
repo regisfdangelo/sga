@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261008.6';
+  const VERSAO_APP = '20261008.8';
 
   /* ============================================================
      UTILITÁRIOS
@@ -123,7 +123,13 @@
         if (e.key === 'Escape' && this.overlay && !this.overlay.hidden) this.close();
       });
     },
-    open(title, bodyHtml, footerHtml) {
+    /**
+     * Abre o modal. `cls` (opcional) é uma classe extra no
+     * overlay — ex.: 'sobre-mapa', que joga o modal por cima do
+     * pop-up do mapa (z-index maior) e o alarga para a tabela
+     * das pastas caber.
+     */
+    open(title, bodyHtml, footerHtml, cls) {
       document.getElementById('modal-title').textContent = title;
       document.getElementById('modal-body').innerHTML = bodyHtml;
       const footer = document.getElementById('modal-footer');
@@ -131,13 +137,18 @@
       // rebind do botão padrão (footer recriado)
       const btn = document.getElementById('modal-btn-close');
       if (btn) btn.addEventListener('click', () => this.close());
+      this.overlay.className = 'modal-overlay' + (cls ? ` ${cls}` : '');
       this.overlay.hidden = false;
       document.body.style.overflow = 'hidden';
     },
     close() {
       if (!this.overlay) return;
       this.overlay.hidden = true;
-      document.body.style.overflow = '';
+      this.overlay.className = 'modal-overlay';  // tira classes extras
+      // Se o modal estava por cima do MAPA, a rolagem continua
+      // travada enquanto o pop-up do mapa seguir aberto.
+      const mapa = document.getElementById('mapa-popup');
+      document.body.style.overflow = (mapa && !mapa.hidden) ? 'hidden' : '';
     },
   };
 
@@ -876,12 +887,19 @@
      A planta é um GRID ÚNICO de estantes: um QUADRADO por
      estante (rótulo da estante fora do quadrado) e, dentro,
      a grade uniforme das caixas da estante — verde = vazia,
-     laranja = parcial, cinza = cheia; descrição da caixa no
-     tooltip do mouse.
+     amarela = parcial, cinza = cheia, vermelha = cheia toda p/
+     descarte, ✓ vermelho onde só ALGUMAS pastas são p/ descarte;
+     clique na caixa abre o conteúdo (pastas/documentos e status);
+     a descrição da caixa fica no tooltip do mouse.
      ============================================================ */
   let mapaInit = false;
   let mapaSeq = 0;
   let mapaSalas = [];
+  /** Caixas/estantes da sala aberta no pop-up (id -> objeto). */
+  let mapaCaixas = new Map();
+  let mapaEstantes = new Map();
+  /** Nº de aberturas do modal de conteúdo de caixa (evita resposta velha). */
+  let mapaCaixaSeq = 0;
 
   /**
    * Preenche o select de salas do Painel.
@@ -910,7 +928,18 @@
       document.getElementById('mapa-popup-fechar')?.addEventListener('click', fechaMapa);
       const popup = document.getElementById('mapa-popup');
       document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && popup && !popup.hidden) fechaMapa();
+        if (e.key !== 'Escape') return;
+        // Modal aberto por cima do mapa (conteúdo da caixa):
+        // o Escape fecha SÓ o modal; o mapa fecha no próximo.
+        const modal = document.getElementById('modal-overlay');
+        if (modal && !modal.hidden) return;
+        if (popup && !popup.hidden) fechaMapa();
+      });
+      // Clique numa caixa do mapa -> lista as pastas/documentos
+      // dela (delegação: os quadrados são recriados a cada sala).
+      document.getElementById('mapa-estantes')?.addEventListener('click', ev => {
+        const quad = ev.target.closest('.mapa-quad');
+        if (quad && quad.dataset.caixa) abrirConteudoCaixa(quad.dataset.caixa);
       });
     }
     // Com linha/coluna (sql/17) a planta respeita a grade da sala;
@@ -953,6 +982,7 @@
     const popup = document.getElementById('mapa-popup');
     if (!popup || popup.hidden) return;
     popup.hidden = true;
+    Modal.close();  // fecha também o conteúdo da caixa, se aberto
     document.body.style.overflow = '';
   }
 
@@ -1141,7 +1171,8 @@
    * ESTANTE, com a descrição da estante na extremidade de FORA
    * do quadrado e, dentro, a grade uniforme de todas as caixas
    * da estante (cor por ocupação E por descarte, ver regras em
-   * quadradinho(); descrição da caixa no tooltip do mouse). O
+   * quadradinho(); clique na caixa abre o conteúdo dela e a
+   * descrição fica no tooltip do mouse). O
    * resultado é medido e reduzido (scale) por encaixaMapa() para
    * caber no pop-up, sem barra de rolagem.
    *
@@ -1158,6 +1189,11 @@
     const grid = document.getElementById('mapa-estantes');
     const resumo = document.getElementById('mapa-resumo');
     if (!grid || !resumo) return;
+
+    // Guarda a sala aberta: o clique no quadrado usa estes mapas
+    // para abrir o conteúdo da caixa (abrirConteudoCaixa).
+    mapaEstantes = new Map((estantes || []).map(e => [String(e.id), e]));
+    mapaCaixas = new Map((caixas || []).map(c => [String(c.id), c]));
 
     if (!estantes.length && !caixas.length) {
       grid.innerHTML = '<p class="empty-state">Nenhuma estante ou caixa cadastrada nesta sala</p>';
@@ -1204,16 +1240,17 @@
     let docsSala = 0, capSala = 0;
 
     /**
-     * Cor da caixa (quatro estados + marca de descarte):
-     *   vazia            = nenhuma pasta ativa        -> verde
-     *   parcial          = ocupação parcial, sem descarte -> laranja
-     *   cheia            = 100%, sem descarte         -> cinza claro
-     *   descarte         = TODAS as pastas p/ descarte -> vermelha
-     *                      (sem marca: a caixa já é o sinal)
-     *   misto            = cheia com ativa E descarte  -> degradê
-     *                      cinza claro/verde/vermelho
-     * E, havendo ALGUMA pasta para descarte (não todas), a marca
-     * de confirmação ✓ vermelho no centro (.tem-descarte).
+     * Cor da caixa (seis estados — 4 cores + 2 com marca):
+     *   vazia   = nenhuma pasta ativa                  -> verde
+     *   parcial = ocupação parcial, sem descarte       -> amarela
+     *   cheia   = 100%, sem descarte                   -> cinza claro
+     *   descarte= CHEIA e TODAS as pastas p/ descarte  -> vermelha
+     *             (sem marca: a cor já é o sinal)
+     *   parcial + alguma p/ descarte -> amarela + ✓ vermelho
+     *   misto   = cheia com alguma (não todas) p/ descarte
+     *                                  -> cinza claro + ✓ vermelho
+     * A marca de confirmação ✓ vermelho no centro é .tem-descarte
+     * e só aparece quando HÁ pasta para descarte na caixa.
      */
     const quadradinho = c => {
       const docs = (conta.total && conta.total[c.id]) || 0;
@@ -1228,7 +1265,7 @@
       let classe = (pct === 0 || (pct === null && docs === 0)) ? 'vazio'
         : (pct !== null && pct >= 100 ? 'cheia' : 'parcial');
       let marca = false;
-      if (docs > 0 && desc === docs) {
+      if (docs > 0 && desc === docs && classe === 'cheia') {
         classe = 'descarte';
       } else if (desc > 0) {
         marca = true;
@@ -1242,10 +1279,10 @@
       const nome = c.descricao || c.codigo || '—';
       const ocup = cap ? `${docs}/${cap}` : `${docs}`;
       const titulo = docs
-        ? `${nome} — ${ocup} pastas${desc ? ` · ${desc} para descarte` : ''}`
-        : nome;
+        ? `${nome} — ${ocup} pastas${desc ? ` · ${desc} para descarte` : ''} · clique para ver as pastas`
+        : `${nome} · clique para ver as pastas`;
       return `<div class="mapa-quad ${classe}${marca ? ' tem-descarte' : ''}"` +
-        ` title="${U.esc(titulo)}"></div>`;
+        ` data-caixa="${U.esc(c.id)}" title="${U.esc(titulo)}"></div>`;
     };
 
     /**
@@ -1389,6 +1426,77 @@
       (ocupacao !== null ? ` · ${ocupacao}% de ocupação` : '');
     resumo.hidden = false;
     encaixaMapa();
+  }
+
+  /**
+   * Clique numa caixa do MAPA: abre o modal com as pastas/
+   * documentos daquela caixa e o status de cada um — mais o prazo
+   * de guarda vencido, que é o que coloca a pasta "para
+   * descarte" (mesmo critério das cores da caixa).
+   *
+   * O modal entra com a classe 'sobre-mapa': fica POR CIMA do
+   * pop-up do mapa (z-index maior) e mais largo, p/ a tabela
+   * caber. fechaMapa() fecha este modal junto com o mapa.
+   */
+  async function abrirConteudoCaixa(caixaId) {
+    const cx = mapaCaixas.get(String(caixaId));
+    if (!cx) return;
+    const minhaVez = ++mapaCaixaSeq;
+    const est = mapaEstantes.get(String(cx.estante_id == null ? '' : cx.estante_id));
+    const selSala = document.getElementById('mapa-sala');
+    const salaNome = ((selSala && selSala.options[selSala.selectedIndex]) || {}).textContent || '';
+    const titulo = cx.descricao ? `Caixa ${cx.codigo} — ${cx.descricao}` : `Caixa ${cx.codigo}`;
+
+    Modal.open(titulo, '<p class="empty-state">Carregando pastas…</p>', undefined, 'sobre-mapa');
+
+    let docs;
+    try {
+      docs = await SGA_API.listTudo('documentos',
+        `&caixa_id=eq.${encodeURIComponent(caixaId)}&order=protocolo`,
+        'id,protocolo,descricao,setor,status,prazo_guarda');
+    } catch (err) {
+      if (minhaVez === mapaCaixaSeq && Modal.overlay && !Modal.overlay.hidden) {
+        Modal.open(titulo,
+          `<p class="empty-state">Erro ao carregar as pastas: ${U.esc(err.message)}</p>`,
+          undefined, 'sobre-mapa');
+      }
+      return;
+    }
+    docs = docs || [];
+    // Outro clique assumiu, ou o usuário já fechou o modal
+    if (minhaVez !== mapaCaixaSeq || !Modal.overlay || Modal.overlay.hidden) return;
+
+    const hoje = U.hoje();
+    const ativos = docs.filter(d => d.status !== 'descartado');
+    const cap = (cx.capacidade === null || cx.capacidade === undefined || cx.capacidade === '')
+      ? null : Number(cx.capacidade);
+    const paraDesc = ativos.filter(d => d.prazo_guarda && d.prazo_guarda <= hoje).length;
+
+    const info = [
+      ['Localização', U.esc([salaNome, est ? (est.descricao || est.codigo) : 'Sem estante']
+        .filter(Boolean).join(' · '))],
+      ['Ocupação', `${ativos.length}${cap ? `/${cap}` : ''} pastas`
+        + (paraDesc ? ` · <span class="tag-descarte">${paraDesc} para descarte</span>` : '')],
+    ].map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+
+    const linhas = docs.map(d => {
+      const vencido = d.status !== 'descartado' && d.prazo_guarda && d.prazo_guarda <= hoje;
+      return `<tr><td><strong>${U.esc(d.protocolo)}</strong></td>`
+        + `<td>${U.esc(d.descricao || '—')}</td>`
+        + `<td>${U.esc(d.setor || '—')}</td>`
+        + `<td>${U.pill(d.status)}</td>`
+        + `<td>${U.fmtData(d.prazo_guarda)}`
+        + (vencido ? ' <span class="tag-descarte">p/ descarte</span>' : '')
+        + '</td></tr>';
+    }).join('');
+
+    const tabela = docs.length
+      ? '<div class="table-wrap"><table class="data-table"><thead><tr>'
+        + '<th>Protocolo</th><th>Nome</th><th>Setor</th><th>Status</th><th>Prazo guarda</th>'
+        + `</tr></thead><tbody>${linhas}</tbody></table></div>`
+      : '<p class="empty-state">Caixa sem pastas/documentos</p>';
+
+    Modal.open(titulo, `<dl>${info}</dl>${tabela}`, undefined, 'sobre-mapa');
   }
 
   /* ============================================================
@@ -3379,9 +3487,10 @@
    *   total    = pastas que ocupam a caixa (NÃO descartadas);
    *   descarte = dessas, com prazo de guarda vencido — o mesmo
    *              critério do card "Para Descarte" do Painel.
-   * É a base das cores novas do mapa (caixa toda para descarte
-   * em vermelho e ✗ vermelho nas mistas). Só o mapa usa isto:
-   * as demais telas continuam com contarDocumentosPorCaixa().
+   * É a base das cores do mapa (cheia e toda p/ descarte em
+   * vermelha; ✓ vermelho onde só ALGUMAS pastas são p/ descarte).
+   * Só o mapa usa isto: as demais telas continuam com
+   * contarDocumentosPorCaixa().
    */
   async function resumoPastasPorCaixa() {
     try {
