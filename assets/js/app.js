@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261008.8';
+  const VERSAO_APP = '20261008.11';
 
   /* ============================================================
      UTILITÁRIOS
@@ -2975,7 +2975,7 @@
           <div class="cx-tipo">
             <label class="cx-tipo-op">
               <input type="radio" name="cx-tipo" value="mesma" checked>
-              <span>Mesma sala — ${U.esc(salaAtual.codigo)}${salaAtual.descricao ? ' — ' + U.esc(salaAtual.descricao) : ''}</span>
+              <span>Mesma Sala de Arquivo</span>
             </label>
             <label class="cx-tipo-op">
               <input type="radio" name="cx-tipo" value="outra"${outrasSalas.length ? '' : ' disabled'}>
@@ -3209,6 +3209,12 @@
    *   - aba Pesquisa (docId): a pasta é a da linha e só falta o
    *     destino (a origem vem de documents.caixa_id).
    *
+   * DESTINO, no mesmo critério do Transferir caixa: o modal pergunta
+   * "Mesma Sala de Arquivo" (a sala da caixa de origem) ou "Outra
+   * sala de arquivo"; a lista de caixas vem do escopo escolhido.
+   * Sem dar para saber a sala da origem (banco sem as colunas), o
+   * modal continua como sempre: todas as caixas numa lista só.
+   *
    * REGRA: caixa de destino já no máximo de pastas (capacidade,
    * padrão MAX_CAP_CAIXA = 5) aparece desabilitada como "CHEIA",
    * e a ocupação é RELIDA do banco na hora de confirmar — com o
@@ -3261,8 +3267,42 @@
       return;
     }
 
-    const local = c => [c.sala?.codigo, c.estante?.codigo, c.prateleira?.codigo]
-      .filter(Boolean).join(' / ');
+    // DESTINO — mesma sala (a da caixa de origem) ou outra sala,
+    // como no Transferir caixa. A sala vem do embed da caixa; se o
+    // banco caiu na consulta simples, lê sala_id da origem. Sem
+    // sala conhecida não há o que escolher e o modal continua
+    // como sempre: uma lista só, com todas as caixas.
+    const porId = new Map();
+    (salasCache || []).forEach(s => porId.set(String(s.id), s));
+    (caixas || []).forEach(c => {
+      if (c.sala && c.sala.id && !porId.has(String(c.sala.id))) {
+        porId.set(String(c.sala.id), c.sala);
+      }
+    });
+    const salaDe = c => (c && c.sala && c.sala.id) ? c.sala
+      : ((c && c.sala_id && porId.get(String(c.sala_id))) || null);
+    let salaOrigem = origem ? salaDe(origem) : null;
+    if (origem && !salaOrigem && origemId) {
+      try {
+        const r = await SGA_API.listTudo('caixas',
+          `&id=eq.${encodeURIComponent(origemId)}`, 'sala_id');
+        if (r && r[0] && r[0].sala_id) salaOrigem = porId.get(String(r[0].sala_id)) || null;
+      } catch { /* segue sem o escolhidor de destino */ }
+    }
+    const comTipo = !!salaOrigem;
+    const salaOrigemId = comTipo ? String(salaOrigem.id) : '';
+    const outrasSalas = comTipo
+      ? [...porId.values()]
+          .filter(s => String(s.id) !== salaOrigemId)
+          .sort((a, b) => String(a.codigo || '')
+            .localeCompare(String(b.codigo || ''), 'pt', { numeric: true }))
+      : [];
+
+    const local = c => {
+      const s = salaDe(c);
+      return [s && s.codigo, c.estante?.codigo, c.prateleira?.codigo]
+        .filter(Boolean).join(' / ');
+    };
 
     /** Rótulo da caixa com a ocupação: CX-000001 (SL-001 / P-0001) — 3/5 */
     const rotuloCx = (c, comSituacao = true) => {
@@ -3278,7 +3318,8 @@
     const opsDocs = docs.map(x =>
       `<option value="${U.esc(x.id)}">${U.esc(`${x.protocolo} — ${x.descricao}`)}</option>`).join('');
 
-    const opsDestino = caixas.map(c => {
+    /** <option>s das caixas de UM escopo (sala): origem e CHEIAS desabilitadas. */
+    const opsCaixas = lista => lista.map(c => {
       const cap = capacidadeDaCaixa(c);
       const ocup = conta[c.id] || 0;
       const naOrigem = String(c.id) === String(origemId);
@@ -3292,11 +3333,14 @@
       ? `${rotuloCx(origem, false)} — ${conta[origem.id] || 0}/${capacidadeDaCaixa(origem)} pastas`
       : 'Sem caixa (pasta ainda não localizada)';
 
+    const avisoTxt = `Move a pasta para outra caixa${comTipo
+      ? ', na mesma sala ou em outra sala de arquivo' : ''}. A caixa de destino já cheia `
+      + `(ocupação igual à capacidade, padrão ${MAX_CAP_CAIXA} pastas) aparece `
+      + 'bloqueada e não pode ser escolhida.';
+
     Modal.open(origem ? `Transferir pasta — ${origem.codigo}` : 'Transferir pasta', `
       <form id="form-transferir-pasta" class="form-stack" onsubmit="return false" novalidate>
-        <p class="ed-aviso">Move a pasta para outra caixa. A caixa de destino já cheia
-          (ocupação igual à capacidade, padrão ${MAX_CAP_CAIXA} pastas) aparece
-          bloqueada e não pode ser escolhida.</p>
+        <p class="ed-aviso">${avisoTxt}</p>
         <div class="form-group">
           <label for="tp-origem">Caixa de origem</label>
           <input type="text" id="tp-origem" value="${U.esc(origemTxt)}" readonly>
@@ -3306,12 +3350,75 @@
           <select id="tp-doc">${opsDocs}</select>
           <span class="field-error" id="error-tp-doc" role="alert"></span>
         </div>
+        ${comTipo ? `
+        <div class="form-group">
+          <label>Destino *</label>
+          <div class="cx-tipo">
+            <label class="cx-tipo-op">
+              <input type="radio" name="tp-tipo" value="mesma" checked>
+              <span>Mesma Sala de Arquivo</span>
+            </label>
+            <label class="cx-tipo-op">
+              <input type="radio" name="tp-tipo" value="outra"${outrasSalas.length ? '' : ' disabled'}>
+              <span>Outra sala de arquivo${outrasSalas.length ? '' : ' (nenhuma cadastrada)'}</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-group" id="tp-bloco-sala" style="display:none">
+          <label for="tp-sala">Sala de destino *</label>
+          <select id="tp-sala">${opcoesDestino(outrasSalas, 'Selecione a sala…')}</select>
+        </div>` : ''}
         <div class="form-group">
           <label for="tp-destino">Caixa de destino *</label>
-          <select id="tp-destino"><option value="">Selecione a caixa…</option>${opsDestino}</select>
+          <select id="tp-destino"><option value="">Selecione a caixa…</option></select>
           <span class="field-error" id="error-tp-destino" role="alert"></span>
         </div>
       </form>`, botoesModal('Transferir'));
+
+    const blocoSala = document.getElementById('tp-bloco-sala');
+    const selSala = document.getElementById('tp-sala');
+    const selDest = document.getElementById('tp-destino');
+
+    const mesmaSala = () => !comTipo
+      || (document.querySelector('input[name="tp-tipo"]:checked') || {}).value !== 'outra';
+
+    /** Caixas do escopo escolhido: a sala da origem ou a selecionada. */
+    function caixasDoEscopo() {
+      if (!comTipo) return caixas;
+      const alvo = mesmaSala() ? salaOrigemId : (selSala ? selSala.value : '');
+      if (!alvo) return [];
+      return caixas.filter(c => {
+        const s = salaDe(c);
+        return s && String(s.id) === String(alvo);
+      });
+    }
+
+    function desenhaCaixas() {
+      const lista = caixasDoEscopo();
+      const temVaga = lista.some(c => String(c.id) !== String(origemId)
+        && (conta[c.id] || 0) < capacidadeDaCaixa(c));
+      let fill = 'Selecione a caixa…';
+      if (comTipo && !mesmaSala() && !(selSala && selSala.value)) fill = 'Selecione a sala…';
+      else if (!lista.length) fill = 'Nenhuma caixa nesta sala';
+      else if (comTipo && !temVaga) fill = 'Nenhuma caixa com vaga nesta sala';
+      selDest.innerHTML = `<option value="">${fill}</option>` + opsCaixas(lista);
+      const err = document.getElementById('error-tp-destino');
+      if (err) err.textContent = '';
+    }
+
+    /** Aplica a escolha (mesma / outra sala) na lista de caixas. */
+    function aplicarTipo() {
+      if (!comTipo) { desenhaCaixas(); return; }
+      blocoSala.style.display = mesmaSala() ? 'none' : '';
+      desenhaCaixas();
+    }
+
+    if (comTipo) {
+      document.querySelectorAll('input[name="tp-tipo"]')
+        .forEach(r => r.addEventListener('change', aplicarTipo));
+      if (selSala) selSala.addEventListener('change', desenhaCaixas);
+    }
+    aplicarTipo(); // começa na MESMA sala, com as caixas já listadas
 
     ligaBotoesModal('Transferir', async () => {
       const form = document.getElementById('form-transferir-pasta');
@@ -3320,6 +3427,10 @@
       const destino = document.getElementById('tp-destino').value;
       let ok = true;
       if (!pasta) { U.setError('tp-doc', 'Selecione a pasta.'); ok = false; }
+      if (comTipo && !mesmaSala() && !(selSala && selSala.value)) {
+        U.toast('Selecione a sala de destino.', 'warning');
+        ok = false;
+      }
       if (!destino) { U.setError('tp-destino', 'Selecione a caixa de destino.'); ok = false; }
       else if (String(destino) === String(origemId)) {
         U.setError('tp-destino', 'A pasta já está nesta caixa.');
@@ -3529,9 +3640,14 @@
    * Devolve [] quando não há caixas e null quando nada funcionou.
    */
   async function carregarCaixasCompletas() {
+    // 1ª: com a SALA embutida (id+codigo+descricao — o Transferir
+    //     pasta precisa da sala p/ o destino "mesma sala");
+    // 2ª: sem embed, mas com a coluna sala_id (o chamador resolve
+    //     a sala pelo cache de salas);
+    // 3ª: mínimo absoluto (banco antigo).
     const tentativas = [
-      'id,codigo,descricao,capacidade,sala:salas(codigo),estante:estantes(codigo),prateleira:prateleiras(codigo)',
-      'id,codigo,descricao,capacidade',
+      'id,codigo,descricao,capacidade,sala:salas(id,codigo,descricao),estante:estantes(codigo),prateleira:prateleiras(codigo)',
+      'id,codigo,descricao,capacidade,sala_id',
       'id,codigo',
     ];
     for (const cols of tentativas) {
