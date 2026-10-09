@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261009.1">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261009.3">
 </head>
 <body class="app-page">
 
@@ -513,79 +513,129 @@
 
         <!-- ============ EMPRÉSTIMO / DEVOLUÇÃO ============ -->
         <section class="section" id="section-emprestimo">
-          <article class="panel">
-            <header class="panel-header">
-              <h3>Registrar Empréstimo</h3>
-            </header>
-            <div class="panel-body">
-              <form id="form-emprestimo" class="form-grid" novalidate>
-                <div class="form-group span-2">
-                  <label for="emp-doc">Documento *</label>
-                  <select id="emp-doc" required>
-                    <option value="">Selecione o documento…</option>
-                  </select>
-                  <span class="field-error" id="error-emp-doc" role="alert"></span>
-                </div>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="emp-tab-prestar" role="tab">Empréstimo</button>
+            <button class="tab" data-tab="emp-tab-devolver" role="tab">Devoluções</button>
+          </div>
 
-                <div class="form-group">
-                  <label for="emp-solicitante">Nome do Solicitante *</label>
-                  <input type="text" id="emp-solicitante" required maxlength="120" placeholder="Nome completo">
-                  <span class="field-error" id="error-emp-solicitante" role="alert"></span>
-                </div>
+          <!-- ---------- Aba Empréstimo ---------- -->
+          <div class="tab-panel active" id="emp-tab-prestar">
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Pesquisa de Documentos</h3>
+              </header>
+              <div class="panel-body">
+                <form id="form-emp-pesquisa" class="filters-row" novalidate>
+                  <div class="form-group">
+                    <label for="emp-pesq-sala">Sala de arquivo</label>
+                    <select id="emp-pesq-sala">
+                      <option value="">Todas as salas</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="emp-pesq-protocolo">Protocolo</label>
+                    <input type="text" id="emp-pesq-protocolo" placeholder="Ex.: 2026-000001" maxlength="20">
+                  </div>
+                  <div class="form-group">
+                    <label for="emp-pesq-descricao">Descrição</label>
+                    <input type="text" id="emp-pesq-descricao" placeholder="Filtra os resultados ao digitar…" maxlength="200">
+                  </div>
+                  <div class="form-group">
+                    <label for="emp-pesq-setor">Setor</label>
+                    <select id="emp-pesq-setor">
+                      <option value="">Todos</option>
+                      <option>DP</option>
+                      <option>RH</option>
+                      <option>Operacional</option>
+                      <option>Comercial</option>
+                      <option>Jurídico</option>
+                      <option>Medicina</option>
+                      <option>Compras</option>
+                      <option>Almoxarifado</option>
+                      <option>Manutenção</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="emp-pesq-status">Status</label>
+                    <select id="emp-pesq-status">
+                      <option value="">Todos</option>
+                      <option value="disponivel" selected>Disponível</option>
+                      <option value="emprestado">Emprestado</option>
+                      <option value="descartavel">Descartável</option>
+                      <option value="descartado">Descartado</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="emp-pesq-data-ini">Data inicial</label>
+                    <input type="date" id="emp-pesq-data-ini">
+                  </div>
+                  <div class="form-group">
+                    <label for="emp-pesq-data-fim">Data final</label>
+                    <input type="date" id="emp-pesq-data-fim">
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Pesquisar</button>
+                    <button type="button" class="btn btn-ghost" id="btn-emp-limpar">Limpar</button>
+                  </div>
+                </form>
+              </div>
+            </article>
 
-                <div class="form-group">
-                  <label for="emp-email">E-mail do Solicitante</label>
-                  <input type="email" id="emp-email" maxlength="120" placeholder="opcional@email.com">
-                </div>
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Disponíveis para Empréstimo <span class="badge" id="emp-disp-count">0</span></h3>
+              </header>
+              <div class="panel-body table-wrap">
+                <table class="data-table" id="table-emp-disponiveis">
+                  <thead>
+                    <tr>
+                      <th>Protocolo</th>
+                      <th>Descrição</th>
+                      <th>Tipo</th>
+                      <th>Setor</th>
+                      <th>Status</th>
+                      <th>Localização</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="7" class="empty-state">Use os filtros acima para pesquisar</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <nav class="pagination" id="emp-pagination" aria-label="Paginação dos documentos disponíveis" hidden></nav>
+            </article>
+          </div>
 
-                <div class="form-group">
-                  <label for="emp-data-emprestimo">Data do Empréstimo *</label>
-                  <input type="date" id="emp-data-emprestimo" required>
-                </div>
-
-                <div class="form-group">
-                  <label for="emp-data-prevista">Data de Devolução Prevista *</label>
-                  <input type="date" id="emp-data-prevista" required>
-                  <span class="field-error" id="error-emp-data-prevista" role="alert"></span>
-                </div>
-
-                <div class="form-group span-2">
-                  <label for="emp-obs">Observações</label>
-                  <textarea id="emp-obs" rows="2" maxlength="500"></textarea>
-                </div>
-
-                <div class="form-actions span-2">
-                  <button type="submit" class="btn btn-primary" id="btn-salvar-emp">
-                    <span class="btn-label">Registrar Empréstimo</span>
-                    <span class="btn-spinner" aria-hidden="true"></span>
-                  </button>
-                </div>
-              </form>
-            </div>
-          </article>
-
-          <article class="panel">
-            <header class="panel-header">
-              <h3>Empréstimos Ativos <span class="badge" id="emprestimos-ativos-count">0</span></h3>
-            </header>
-            <div class="panel-body table-wrap">
-              <table class="data-table" id="table-emprestimos">
-                <thead>
-                  <tr>
-                    <th>Documento</th>
-                    <th>Solicitante</th>
-                    <th>Saída</th>
-                    <th>Prevista</th>
-                    <th>Status</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td colspan="6" class="empty-state">Carregando…</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </article>
+          <!-- ---------- Aba Devoluções ---------- -->
+          <div class="tab-panel" id="emp-tab-devolver">
+            <article class="panel">
+              <header class="panel-header">
+                <h3>Empréstimos Ativos <span class="badge" id="emprestimos-ativos-count">0</span></h3>
+              </header>
+              <div class="panel-body table-wrap">
+                <table class="data-table" id="table-emprestimos">
+                  <thead>
+                    <tr>
+                      <th>Documento</th>
+                      <th>Descrição</th>
+                      <th>Setor</th>
+                      <th>Tipo</th>
+                      <th>Solicitante</th>
+                      <th>Telefone</th>
+                      <th>Saída</th>
+                      <th>Prevista</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="10" class="empty-state">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
         </section>
 
         <!-- ============ RELATÓRIOS ============ -->
@@ -764,6 +814,7 @@
                 </tbody>
               </table>
             </div>
+            <nav class="pagination" id="temp-pagination" aria-label="Paginação da temporalidade" hidden></nav>
           </article>
         </section>
 
@@ -811,8 +862,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261009.1"></script>
-  <script src="assets/js/api.js?v=20261009.1"></script>
-  <script src="assets/js/app.js?v=20261009.1"></script>
+  <script src="assets/js/config.js?v=20261009.3"></script>
+  <script src="assets/js/api.js?v=20261009.3"></script>
+  <script src="assets/js/app.js?v=20261009.3"></script>
 </body>
 </html>

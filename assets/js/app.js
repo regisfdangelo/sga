@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261009.1';
+  const VERSAO_APP = '20261009.3';
 
   /* ============================================================
      UTILITÁRIOS
@@ -394,7 +394,11 @@
       case 'cadastro': initCadastroOnce(); break;
       case 'emprestimo':
         initEmprestimoOnce();
+        // select de sala da pesquisa da aba Empréstimo (mesma
+        // lista/cache usado na aba Pesquisa)
+        loadLocalSelects();
         loadEmprestimoData();
+        carregarDisponiveisEmprestimo();
         break;
       case 'temporalidade':
         loadTemporalidade();
@@ -1757,8 +1761,7 @@
   const RESERVA_RODAPE = 62;
 
   /** Quantas linhas cabem entre o topo da tabela e o fim da tela. */
-  function calcularPorPagina() {
-    const tabela = document.getElementById('table-pesquisa');
+  function calcularPorPagina(tabela = document.getElementById('table-pesquisa')) {
     if (!tabela) return 10;
     // altura de uma linha já renderizada; senão, usa o cabeçalho
     const exemplo = tabela.querySelector('tbody td:not(.empty-state)')
@@ -2416,6 +2419,8 @@
       fillSelect('doc-sala', salas, 'Selecione a sala…');
       // Filtro de sala da aba Pesquisa: mesma lista/cache de salas.
       fillSelect('pesq-sala', salas, 'Todas as salas');
+      // Filtro de sala da pesquisa da aba Empréstimo.
+      fillSelect('emp-pesq-sala', salas, 'Todas as salas');
 
       alocarCaixaPorSala();
       sincronizaEditorSala();
@@ -3935,58 +3940,372 @@
     if (emprestimoInit) return;
     emprestimoInit = true;
 
-    // Datas padrão
-    document.getElementById('emp-data-emprestimo').value = U.hoje();
+    // ---------- Pesquisa de disponíveis (topo da aba Empréstimo) ----------
+    // Mesmos comportamentos da aba Pesquisa: Enter/Pesquisar busca,
+    // descrição e período refazem a busca com debounce, Limpar zera.
+    const formPesq = document.getElementById('form-emp-pesquisa');
+    let timerEmpPesq = null;
+    if (formPesq) {
+      formPesq.addEventListener('submit', e => {
+        e.preventDefault();
+        carregarDisponiveisEmprestimo();
+      });
+      document.getElementById('emp-pesq-descricao').addEventListener('input', () => {
+        clearTimeout(timerEmpPesq);
+        timerEmpPesq = setTimeout(carregarDisponiveisEmprestimo, 300);
+      });
+      ['emp-pesq-data-ini', 'emp-pesq-data-fim'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+          clearTimeout(timerEmpPesq);
+          timerEmpPesq = setTimeout(carregarDisponiveisEmprestimo, 300);
+        });
+      });
+      document.getElementById('btn-emp-limpar').addEventListener('click', () => {
+        clearTimeout(timerEmpPesq);
+        seqEmpPesquisa++;   // descarta resposta pendente
+        U.clearErrors(formPesq);
+        formPesq.reset();   // volta o status para "Disponível" (default)
+        carregarDisponiveisEmprestimo();
+      });
+    }
+
+    // O formulário abre em pop-up (abrirFormEmprestimo); nada a ligar aqui.
+
+    // Redimensionar a janela muda quantas linhas cabem na tela
+    let timerResizeEmp = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(timerResizeEmp);
+      timerResizeEmp = setTimeout(() => {
+        const secao = document.getElementById('section-emprestimo');
+        if (docsEmpPesquisa.length && secao && secao.classList.contains('active')) {
+          renderDisponiveisEmprestimo();
+        }
+      }, 150);
+    });
+
+    // Voltar para a aba Empréstimo: recalcula as linhas por página
+    // (a lista pode ter sido redesenhada com a aba escondida, quando
+    // a altura da tabela não dá para medir).
+    document.querySelectorAll('#section-emprestimo .tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        if (tab.dataset.tab === 'emp-tab-prestar' && docsEmpPesquisa.length) {
+          renderDisponiveisEmprestimo();
+        }
+      });
+    });
+  }
+
+  /* ---- Pesquisa de documentos disponíveis (aba Empréstimo) ---- */
+  /** Resposta mais nova vence: número da última busca disparada. */
+  let seqEmpPesquisa = 0;
+  /** Resultado da última busca (alimenta o botão Emprestar). */
+  let docsEmpPesquisa = [];
+  /** Paginação da lista de disponíveis (mesma ideia da aba Pesquisa). */
+  let empPagina = 1;
+  let empPorPagina = 10;
+
+  /**
+   * Busca os documentos (mesma API da aba Pesquisa). Por padrão o
+   * filtro de status nasce em "Disponível": esta aba é para tirar
+   * pasta do acervo. Resposta atrasada de busca anterior é descartada.
+   */
+  async function carregarDisponiveisEmprestimo() {
+    const tbody = document.querySelector('#table-emp-disponiveis tbody');
+    if (!tbody) return;
+    const minhaVez = ++seqEmpPesquisa;
+    empPagina = 1;   // nova busca volta para a primeira página
+    const formPesq = document.getElementById('form-emp-pesquisa');
+
+    if (formPesq) U.clearErrors(formPesq);
+    const dataIni = document.getElementById('emp-pesq-data-ini').value;
+    const dataFim = document.getElementById('emp-pesq-data-fim').value;
+    if (dataIni && dataFim && dataIni > dataFim) {
+      U.setError('emp-pesq-data-ini', 'Data inicial maior que a final');
+      U.toast('Período inválido: a data inicial é posterior à final.', 'warning');
+      return;
+    }
+
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Pesquisando…</td></tr>';
+    renderPaginacaoEmp(0);   // esconde a paginação velha durante a busca
+    try {
+      const docs = await SGA_API.searchDocumentos({
+        protocolo: document.getElementById('emp-pesq-protocolo').value.trim(),
+        descricao: document.getElementById('emp-pesq-descricao').value.trim(),
+        setor: document.getElementById('emp-pesq-setor').value,
+        status: document.getElementById('emp-pesq-status').value,
+        salaId: document.getElementById('emp-pesq-sala').value,
+        dataIni,
+        dataFim,
+      });
+      if (minhaVez !== seqEmpPesquisa) return;
+      docsEmpPesquisa = docs || [];
+      renderDisponiveisEmprestimo();
+    } catch (err) {
+      if (minhaVez !== seqEmpPesquisa) return;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
+      U.toast(err.message, 'error');
+    }
+  }
+
+  /**
+   * Desenha a lista e corrige a altura da página: as linhas que cabem
+   * na tela vêm do mesmo cálculo da aba Pesquisa, sem barra de rolagem.
+   */
+  function renderDisponiveisEmprestimo() {
+    const docs = docsEmpPesquisa;
+    const badge = document.getElementById('emp-disp-count');
+    if (badge) badge.textContent = docs.length;
+    const tbody = document.querySelector('#table-emp-disponiveis tbody');
+    const tabela = document.getElementById('table-emp-disponiveis');
+    if (!tbody) return;
+
+    if (!docs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Nenhum documento encontrado</td></tr>';
+      renderPaginacaoEmp(0);
+      return;
+    }
+
+    // Mede as linhas que cabem só com a tabela À VISTA (offsetHeight 0
+    // = seção/aba escondida; topo fora da tela = pop-up aberto por
+    // cima): senão o medidor devolveria 1 linha/página e perderia o
+    // encaixe.
+    if (tabela && tabela.offsetHeight > 0) {
+      const topo = tabela.getBoundingClientRect().top;
+      if (topo >= 0 && topo < window.innerHeight) {
+        empPorPagina = calcularPorPagina(tabela);
+      }
+    }
+    desenharDisponiveisEmprestimo();
+
+    // Na PRIMEIRA vez o tbody ainda só tem o estado vazio
+    // ("Pesquisando…"), então a medição acima usou a altura do
+    // CABEÇALHO (mais baixo) e acha que cabem linhas demais — aí
+    // tudo vira 1 página e a paginação some. Recalcula com a linha
+    // REAL já desenhada e redesenha se o valor mudar (estabiliza
+    // em 1-2 rodadas).
+    let rodada = 0;
+    while (rodada < 5 && tabela) {
+      const celula = tabela.querySelector('tbody td:not(.empty-state)');
+      if (!celula || !celula.clientHeight) break;
+      const recalculado = calcularPorPagina(tabela);
+      if (recalculado >= empPorPagina) break;
+      empPorPagina = recalculado;
+      desenharDisponiveisEmprestimo();
+      rodada++;
+    }
+  }
+
+  /** Só desenha a fatia atual (página empPagina) + a paginação. */
+  function desenharDisponiveisEmprestimo() {
+    const docs = docsEmpPesquisa;
+    const totalPaginas = Math.max(1, Math.ceil(docs.length / empPorPagina));
+    if (empPagina > totalPaginas) empPagina = totalPaginas;
+    if (empPagina < 1) empPagina = 1;
+    const inicio = (empPagina - 1) * empPorPagina;
+    const pagina = docs.slice(inicio, inicio + empPorPagina);
+
+    const tbody = document.querySelector('#table-emp-disponiveis tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = pagina.map(d => {
+      const livre = d.status === 'disponivel';
+      return `
+      <tr>
+        <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
+        <td><span class="cell-desc" title="${U.esc(d.descricao)}">${U.esc(d.descricao)}</span></td>
+        <td>${U.esc(d.tipo)}</td>
+        <td>${U.esc(d.setor)}</td>
+        <td>${U.pill(d.status)}</td>
+        <td class="cell-local">${U.esc(d.status === 'descartado'
+          ? '— (fora do acervo)' : U.locLabel(d.caixas))}</td>
+        <td>
+          <div class="table-actions">
+            <button type="button" class="btn btn-mini ${livre ? 'btn-primary' : 'btn-ghost'}"
+              data-prestar="${U.esc(d.id)}"
+              ${livre ? '' : 'disabled title="Só é possível emprestar documento disponível"'}>
+              ${livre ? 'Emprestar' : 'Indisponível'}
+            </button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('[data-prestar]').forEach(btn => {
+      if (btn.disabled) return;
+      btn.addEventListener('click', () => abrirFormEmprestimo(btn.dataset.prestar));
+    });
+
+    renderPaginacaoEmp(totalPaginas);
+  }
+
+  /** Botões de página da lista de disponíveis (aba Empréstimo). */
+  function renderPaginacaoEmp(totalPaginas) {
+    const nav = document.getElementById('emp-pagination');
+    if (!nav) return;
+    if (totalPaginas <= 1) {
+      nav.innerHTML = '';
+      nav.hidden = true;
+      return;
+    }
+    nav.hidden = false;
+
+    // Mesma janela da aba Pesquisa: todas até 9; depois 1 … x x+1 … N
+    const paginas = [];
+    if (totalPaginas <= 9) {
+      for (let i = 1; i <= totalPaginas; i++) paginas.push(i);
+    } else {
+      paginas.push(1);
+      const de = Math.max(2, empPagina - 2);
+      const ate = Math.min(totalPaginas - 1, empPagina + 2);
+      if (de > 2) paginas.push('…');
+      for (let i = de; i <= ate; i++) paginas.push(i);
+      if (ate < totalPaginas - 1) paginas.push('…');
+      paginas.push(totalPaginas);
+    }
+
+    nav.innerHTML =
+      `<button type="button" class="page-btn" data-emp-pag="${empPagina - 1}"`
+      + `${empPagina === 1 ? ' disabled' : ''} aria-label="Página anterior">&#8249;</button>`
+      + paginas.map(p => p === '…'
+        ? '<span class="page-ellipsis">…</span>'
+        : `<button type="button" class="page-btn${p === empPagina ? ' active' : ''}"`
+          + ` data-emp-pag="${p}"${p === empPagina ? ' aria-current="page"' : ''}>${p}</button>`
+      ).join('')
+      + `<button type="button" class="page-btn" data-emp-pag="${empPagina + 1}"`
+      + `${empPagina >= totalPaginas ? ' disabled' : ''} aria-label="Próxima página">&#8250;</button>`;
+
+    nav.querySelectorAll('[data-emp-pag]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const alvo = Number(btn.dataset.empPag);
+        if (!Number.isFinite(alvo) || alvo < 1 || alvo > totalPaginas || alvo === empPagina) return;
+        empPagina = alvo;
+        renderDisponiveisEmprestimo();
+        const tabela = document.getElementById('table-emp-disponiveis');
+        if (tabela) tabela.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      });
+    });
+  }
+
+  /**
+   * Abre o pop-up de empréstimo com o documento da linha clicado.
+   * O campo Documento vem automático (protocolo + descrição) e fica
+   * somente leitura: o empréstimo é sempre do documento escolhido
+   * na lista anterior.
+   */
+  function abrirFormEmprestimo(docId) {
+    const doc = docsEmpPesquisa.find(d => d.id === docId)
+      || docsDisponiveis.find(d => d.id === docId);
+    if (!doc) { U.toast('Documento não encontrado na lista.', 'warning'); return; }
+
     const prev = new Date();
     prev.setDate(prev.getDate() + 7);
-    document.getElementById('emp-data-prevista').value = prev.toISOString().slice(0, 10);
+    const rotuloDoc = `${doc.protocolo} — ${String(doc.descricao || '').slice(0, 60)}`;
 
-    const form = document.getElementById('form-emprestimo');
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      U.clearErrors(form);
+    Modal.open('Registrar Empréstimo', `
+      <form id="form-emprestimo" class="form-grid" novalidate>
+        <div class="form-group span-2">
+          <label for="emp-doc">Documento *</label>
+          <input type="text" id="emp-doc" value="${U.esc(rotuloDoc)}" readonly tabindex="-1"
+                 data-id="${U.esc(docId)}" data-protocolo="${U.esc(doc.protocolo || '')}">
+          <span class="field-error" id="error-emp-doc" role="alert"></span>
+        </div>
 
-      let ok = true;
-      const docId = document.getElementById('emp-doc').value;
-      const solicitante = document.getElementById('emp-solicitante').value.trim();
-      const dtEmp = document.getElementById('emp-data-emprestimo').value;
-      const dtPrev = document.getElementById('emp-data-prevista').value;
+        <div class="form-group">
+          <label for="emp-solicitante">Nome do Solicitante *</label>
+          <input type="text" id="emp-solicitante" required maxlength="120" placeholder="Nome completo">
+          <span class="field-error" id="error-emp-solicitante" role="alert"></span>
+        </div>
 
-      if (!docId) { U.setError('emp-doc', 'Selecione o documento.'); ok = false; }
-      if (!solicitante) { U.setError('emp-solicitante', 'Informe o solicitante.'); ok = false; }
-      if (!dtEmp || !dtPrev) { U.setError('emp-data-prevista', 'Informe as datas.'); ok = false; }
-      else if (dtPrev < dtEmp) { U.setError('emp-data-prevista', 'Deve ser ≥ data do empréstimo.'); ok = false; }
-      if (!ok) return;
+        <div class="form-group">
+          <label for="emp-email">E-mail do Solicitante</label>
+          <input type="email" id="emp-email" maxlength="120" placeholder="opcional@email.com">
+        </div>
 
-      const btn = document.getElementById('btn-salvar-emp');
-      U.loading(btn, true);
+        <div class="form-group">
+          <label for="emp-telefone">Telefone do Solicitante *</label>
+          <input type="tel" id="emp-telefone" required maxlength="20" inputmode="tel" placeholder="(00) 00000-0000">
+          <span class="field-error" id="error-emp-telefone" role="alert"></span>
+        </div>
 
-      try {
-        const doc = docsDisponiveis.find(d => d.id === docId);
-        await SGA_API.insert('emprestimos', {
-          documento_id: docId,
-          solicitante_nome: solicitante,
-          solicitante_email: document.getElementById('emp-email').value.trim() || null,
-          data_emprestimo: dtEmp,
-          data_devolucao_prevista: dtPrev,
-          status: 'ativo',
-          observacoes: document.getElementById('emp-obs').value.trim() || null,
-          doc_protocolo: doc ? doc.protocolo : null,
-        });
+        <div class="form-group">
+          <label for="emp-data-emprestimo">Data do Empréstimo *</label>
+          <input type="date" id="emp-data-emprestimo" required value="${U.hoje()}">
+        </div>
 
-        await SGA_API.update('documentos', docId, { status: 'emprestado' });
+        <div class="form-group">
+          <label for="emp-data-prevista">Data de Devolução Prevista *</label>
+          <input type="date" id="emp-data-prevista" required value="${prev.toISOString().slice(0, 10)}">
+          <span class="field-error" id="error-emp-data-prevista" role="alert"></span>
+        </div>
 
-        U.toast('Empréstimo registrado com sucesso!', 'success');
-        form.reset();
-        document.getElementById('emp-data-emprestimo').value = U.hoje();
-        document.getElementById('emp-data-prevista').value = prev.toISOString().slice(0, 10);
-        loadEmprestimoData();
-      } catch (err) {
-        U.toast(`Erro: ${err.message}`, 'error');
-      } finally {
-        U.loading(btn, false);
-      }
-    });
+        <div class="form-group span-2">
+          <label for="emp-obs">Observações</label>
+          <textarea id="emp-obs" rows="2" maxlength="500"></textarea>
+        </div>
+
+        <div class="form-actions span-2">
+          <button type="submit" class="btn btn-primary" id="btn-salvar-emp">
+            <span class="btn-label">Registrar Empréstimo</span>
+            <span class="btn-spinner" aria-hidden="true"></span>
+          </button>
+        </div>
+      </form>`, undefined, 'modal-largo');
+
+    document.getElementById('form-emprestimo').addEventListener('submit', registrarEmprestimo);
+    document.getElementById('emp-solicitante')?.focus({ preventScroll: true });
+  }
+
+  /** Valida e grava o empréstimo (submit do pop-up). */
+  async function registrarEmprestimo(e) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    U.clearErrors(form);
+
+    let ok = true;
+    const campoDoc = document.getElementById('emp-doc');
+    const docId = campoDoc ? campoDoc.dataset.id : '';
+    const solicitante = document.getElementById('emp-solicitante').value.trim();
+    const telefone = document.getElementById('emp-telefone').value.trim();
+    const dtEmp = document.getElementById('emp-data-emprestimo').value;
+    const dtPrev = document.getElementById('emp-data-prevista').value;
+
+    if (!docId) { U.setError('emp-doc', 'Documento não informado.'); ok = false; }
+    if (!solicitante) { U.setError('emp-solicitante', 'Informe o solicitante.'); ok = false; }
+    if (!telefone) { U.setError('emp-telefone', 'Informe o telefone do solicitante.'); ok = false; }
+    if (!dtEmp || !dtPrev) { U.setError('emp-data-prevista', 'Informe as datas.'); ok = false; }
+    else if (dtPrev < dtEmp) { U.setError('emp-data-prevista', 'Deve ser ≥ data do empréstimo.'); ok = false; }
+    if (!ok) return;
+
+    const btn = document.getElementById('btn-salvar-emp');
+    U.loading(btn, true);
+
+    try {
+      await SGA_API.insert('emprestimos', {
+        documento_id: docId,
+        solicitante_nome: solicitante,
+        solicitante_email: document.getElementById('emp-email').value.trim() || null,
+        telefone: telefone,
+        data_emprestimo: dtEmp,
+        data_devolucao_prevista: dtPrev,
+        status: 'ativo',
+        observacoes: document.getElementById('emp-obs').value.trim() || null,
+        doc_protocolo: campoDoc.dataset.protocolo
+          || (docsDisponiveis.find(d => d.id === docId)
+              || docsEmpPesquisa.find(d => d.id === docId) || {}).protocolo
+          || null,
+      });
+
+      await SGA_API.update('documentos', docId, { status: 'emprestado' });
+
+      Modal.close();
+      U.toast('Empréstimo registrado com sucesso!', 'success');
+      loadEmprestimoData();            // aba Devoluções (ativos)
+      carregarDisponiveisEmprestimo();  // o documento saiu da lista
+    } catch (err) {
+      U.toast(`Erro: ${err.message}`, 'error');
+    } finally {
+      U.loading(btn, false);
+    }
   }
 
   async function loadEmprestimoData() {
@@ -3994,18 +4313,21 @@
       const [docs, emps] = await Promise.all([
         SGA_API.list('documentos', '&status=eq.disponivel&order=protocolo', 'id,protocolo,descricao'),
         SGA_API.list('emprestimos', '&status=eq.ativo&order=data_devolucao_prevista',
-          'id,documento_id,doc_protocolo,solicitante_nome,data_emprestimo,data_devolucao_prevista,status'),
+          'id,documento_id,doc_protocolo,solicitante_nome,telefone,data_emprestimo,data_devolucao_prevista,status'),
       ]);
 
       docsDisponiveis = docs || [];
       emprestimosAtivos = emps || [];
 
-      // Select de documentos disponíveis
-      const sel = document.getElementById('emp-doc');
-      sel.innerHTML = '<option value="">Selecione o documento…</option>' +
-        docsDisponiveis.map(d =>
-          `<option value="${U.esc(d.id)}">${U.esc(d.protocolo)} — ${U.esc(d.descricao.slice(0, 60))}</option>`
-        ).join('');
+      // Descrição/setor/tipo vêm do documento emprestado (a tabela
+      // de empréstimos guarda só o protocolo copiado).
+      const idsDocs = emprestimosAtivos.map(e => e.documento_id).filter(Boolean);
+      let detalhes = [];
+      if (idsDocs.length) {
+        detalhes = await SGA_API.list('documentos',
+          `&id=in.(${idsDocs.join(',')})`, 'id,descricao,setor,tipo').catch(() => []);
+      }
+      const docPorId = new Map((detalhes || []).map(d => [String(d.id), d]));
 
       // Tabela de ativos
       document.getElementById('emprestimos-ativos-count').textContent = emprestimosAtivos.length;
@@ -4015,21 +4337,26 @@
       tbody.innerHTML = emprestimosAtivos.length
         ? emprestimosAtivos.map(e => {
             const atrasado = e.data_devolucao_prevista && e.data_devolucao_prevista < hoje;
+            const doc = docPorId.get(String(e.documento_id)) || {};
             return `
             <tr>
               <td class="cell-protocolo">${U.esc(e.doc_protocolo || '—')}</td>
+              <td><span class="cell-desc" title="${U.esc(doc.descricao || '')}">${U.esc(doc.descricao || '—')}</span></td>
+              <td>${U.esc(doc.setor || '—')}</td>
+              <td>${U.esc(doc.tipo || '—')}</td>
               <td>${U.esc(e.solicitante_nome)}</td>
+              <td>${U.esc(e.telefone || '—')}</td>
               <td>${U.fmtData(e.data_emprestimo)}</td>
               <td>${U.fmtData(e.data_devolucao_prevista)}</td>
               <td>${U.pill(atrasado ? 'atrasado' : 'ativo')}</td>
               <td>
                 <div class="table-actions">
-                  <button class="btn btn-sm btn-success" data-return="${U.esc(e.id)}" data-doc="${U.esc(e.documento_id)}">Devolver</button>
+                   <button class="btn btn-mini btn-success" data-return="${U.esc(e.id)}" data-doc="${U.esc(e.documento_id)}">Devolver</button>
                 </div>
               </td>
             </tr>`;
           }).join('')
-        : '<tr><td colspan="6" class="empty-state">Nenhum empréstimo ativo</td></tr>';
+        : '<tr><td colspan="10" class="empty-state">Nenhum empréstimo ativo</td></tr>';
 
       tbody.querySelectorAll('[data-return]').forEach(btn => {
         btn.addEventListener('click', () => devolver(btn.dataset.return, btn.dataset.doc));
@@ -4050,6 +4377,7 @@
       await SGA_API.update('documentos', docId, { status: 'disponivel' });
       U.toast('Devolução registrada!', 'success');
       loadEmprestimoData();
+      carregarDisponiveisEmprestimo();  // a pasta voltou a ficar disponível
     } catch (err) {
       U.toast(`Erro: ${err.message}`, 'error');
     }
@@ -4222,9 +4550,34 @@
   // para quem não está emprestado.
   const JANELA_VENCIMENTO_DIAS = 5;
 
+  /** Paginação da lista de temporalidade (mesma ideia da aba Empréstimo). */
+  let tempPagina = 1;
+  let tempPorPagina = 10;
+  /** Resultado filtrado da última carga (alimenta a paginação). */
+  let tempLista = [];
+  let tempInit = false;
+
+  /** Resize da janela: recalcula as linhas por página (uma única vez). */
+  function initTemporalidadeOnce() {
+    if (tempInit) return;
+    tempInit = true;
+    let timerResizeTemp = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(timerResizeTemp);
+      timerResizeTemp = setTimeout(() => {
+        const secao = document.getElementById('section-temporalidade');
+        if (tempLista.length && secao && secao.classList.contains('active')) {
+          renderTemporalidade();
+        }
+      }, 150);
+    });
+  }
+
   async function loadTemporalidade() {
+    initTemporalidadeOnce();
     const tbody = document.querySelector('#table-temporalidade tbody');
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Carregando…</td></tr>';
+    renderPaginacaoTemp(0);   // esconde a paginação velha durante a carga
 
     try {
       const docs = await SGA_API.list(
@@ -4240,64 +4593,166 @@
       // Vencidos (prazo <= hoje) + os que vencem em até 5 dias.
       // O filtro é o mesmo que decide se a linha tem o botão
       // Descartar: quem não aparece aqui também não é descartável.
-      const lista = (docs || [])
+      tempLista = (docs || [])
         .filter(d => d.prazo_guarda && d.status !== 'descartado' && d.prazo_guarda <= limite)
         .sort((a, b) => a.prazo_guarda.localeCompare(b.prazo_guarda));
 
-      document.getElementById('temp-count').textContent = lista.length;
-
-      if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">'
-          + `Nenhum documento vencido ou a vencer em até ${JANELA_VENCIMENTO_DIAS} dias</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = lista.map(d => {
-        const dias = Math.round(
-          (Date.parse(d.prazo_guarda) - Date.parse(hoje)) / 86400000
-        );
-        let situacao;
-        if (dias < 0) {
-          situacao = '<span class="status status-atrasado">Vencido</span>';
-        } else if (dias === 0) {
-          situacao = '<span class="status status-emprestado">Vence hoje</span>';
-        } else {
-          situacao = `<span class="status status-emprestado">Vence em ${dias} dia${dias > 1 ? 's' : ''}</span>`;
-        }
-        // Emprestado não pode ser descartado (a regra está no banco):
-        // o botão fica desabilitado com o motivo no title.
-        const bloqueado = d.status === 'emprestado';
-        return `
-        <tr>
-          <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
-          <td><span class="cell-desc" title="${U.esc(d.descricao)}">${U.esc(d.descricao)}</span></td>
-          <td>${U.esc(d.setor)}</td>
-          <td class="cell-protocolo">${U.fmtData(d.prazo_guarda)}</td>
-          <td>${situacao}</td>
-          <td>
-            ${bloqueado
-              ? '<button type="button" class="btn btn-ghost btn-sm" disabled '
-                + 'title="Documento emprestado: registre a devolução antes de descartar">Descartar</button>'
-              : `<button type="button" class="btn btn-danger btn-sm temp-descartar"
-                   data-descartar="${U.esc(d.id)}"
-                   data-doc='${U.esc(JSON.stringify({
-                     id: d.id, protocolo: d.protocolo, descricao: d.descricao,
-                     setor: d.setor, prazo_guarda: d.prazo_guarda,
-                     status: d.status, dias,
-                   }))}'
-                   title="Descartar este documento">Descartar</button>`}
-          </td>
-        </tr>`;
-      }).join('');
-
-      // Um único listener por linha (o tbody é recriado a cada carga)
-      tbody.querySelectorAll('[data-descartar]').forEach(btn => {
-        btn.addEventListener('click', () => descartarDaTemporalidade(btn));
-      });
+      document.getElementById('temp-count').textContent = tempLista.length;
+      tempPagina = 1;
+      renderTemporalidade();
     } catch (err) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Erro: ${U.esc(err.message)}</td></tr>`;
       U.toast(err.message, 'error');
     }
+  }
+
+  /**
+   * Desenha a lista e corrige a altura da página: as linhas que cabem
+   * na tela vêm do mesmo cálculo da aba Empréstimo/Pesquisa, sem
+   * barra de rolagem. Na primeira vez o tbody ainda tem o estado
+   * vazio ("Carregando…"), então recalcula com a linha REAL já
+   * desenhada antes de fechar a paginação.
+   */
+  function renderTemporalidade() {
+    const tbody = document.querySelector('#table-temporalidade tbody');
+    const tabela = document.getElementById('table-temporalidade');
+    if (!tbody) return;
+
+    if (!tempLista.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">'
+        + `Nenhum documento vencido ou a vencer em até ${JANELA_VENCIMENTO_DIAS} dias</td></tr>`;
+      renderPaginacaoTemp(0);
+      return;
+    }
+
+    // Mede só com a tabela À VISTA (seção escondida = offsetHeight 0).
+    if (tabela && tabela.offsetHeight > 0) {
+      const topo = tabela.getBoundingClientRect().top;
+      if (topo >= 0 && topo < window.innerHeight) {
+        tempPorPagina = calcularPorPagina(tabela);
+      }
+    }
+    desenharTemporalidade();
+
+    // Recalibra com a linha real já desenhada (a medição acima pode
+    // ter usado o CABEÇALHO, mais baixo, e superestimado as linhas).
+    let rodada = 0;
+    while (rodada < 5 && tabela) {
+      const celula = tabela.querySelector('tbody td:not(.empty-state)');
+      if (!celula || !celula.clientHeight) break;
+      const recalculado = calcularPorPagina(tabela);
+      if (recalculado >= tempPorPagina) break;
+      tempPorPagina = recalculado;
+      desenharTemporalidade();
+      rodada++;
+    }
+  }
+
+  /** Só desenha a fatia atual (página tempPagina) + a paginação. */
+  function desenharTemporalidade() {
+    const lista = tempLista;
+    const totalPaginas = Math.max(1, Math.ceil(lista.length / tempPorPagina));
+    if (tempPagina > totalPaginas) tempPagina = totalPaginas;
+    if (tempPagina < 1) tempPagina = 1;
+    const inicio = (tempPagina - 1) * tempPorPagina;
+    const pagina = lista.slice(inicio, inicio + tempPorPagina);
+
+    const tbody = document.querySelector('#table-temporalidade tbody');
+    if (!tbody) return;
+    const hoje = U.hoje();
+
+    tbody.innerHTML = pagina.map(d => {
+      const dias = Math.round(
+        (Date.parse(d.prazo_guarda) - Date.parse(hoje)) / 86400000
+      );
+      let situacao;
+      if (dias < 0) {
+        situacao = '<span class="status status-atrasado">Vencido</span>';
+      } else if (dias === 0) {
+        situacao = '<span class="status status-emprestado">Vence hoje</span>';
+      } else {
+        situacao = `<span class="status status-emprestado">Vence em ${dias} dia${dias > 1 ? 's' : ''}</span>`;
+      }
+      // Emprestado não pode ser descartado (a regra está no banco):
+      // o botão fica desabilitado com o motivo no title.
+      const bloqueado = d.status === 'emprestado';
+      return `
+      <tr>
+        <td class="cell-protocolo"><strong>${U.esc(d.protocolo)}</strong></td>
+        <td><span class="cell-desc" title="${U.esc(d.descricao)}">${U.esc(d.descricao)}</span></td>
+        <td>${U.esc(d.setor)}</td>
+        <td class="cell-protocolo">${U.fmtData(d.prazo_guarda)}</td>
+        <td>${situacao}</td>
+        <td>
+          ${bloqueado
+            ? '<button type="button" class="btn btn-ghost btn-mini" disabled '
+              + 'title="Documento emprestado: registre a devolução antes de descartar">Descartar</button>'
+            : `<button type="button" class="btn btn-danger btn-mini temp-descartar"
+                 data-descartar="${U.esc(d.id)}"
+                 data-doc='${U.esc(JSON.stringify({
+                   id: d.id, protocolo: d.protocolo, descricao: d.descricao,
+                   setor: d.setor, prazo_guarda: d.prazo_guarda,
+                   status: d.status, dias,
+                 }))}'
+                 title="Descartar este documento">Descartar</button>`}
+        </td>
+      </tr>`;
+    }).join('');
+
+    // Um único listener por linha (o tbody é recriado a cada página)
+    tbody.querySelectorAll('[data-descartar]').forEach(btn => {
+      btn.addEventListener('click', () => descartarDaTemporalidade(btn));
+    });
+
+    renderPaginacaoTemp(totalPaginas);
+  }
+
+  /** Botões de página da lista de temporalidade. */
+  function renderPaginacaoTemp(totalPaginas) {
+    const nav = document.getElementById('temp-pagination');
+    if (!nav) return;
+    if (totalPaginas <= 1) {
+      nav.innerHTML = '';
+      nav.hidden = true;
+      return;
+    }
+    nav.hidden = false;
+
+    // Mesma janela da aba Pesquisa: todas até 9; depois 1 … x x+1 … N
+    const paginas = [];
+    if (totalPaginas <= 9) {
+      for (let i = 1; i <= totalPaginas; i++) paginas.push(i);
+    } else {
+      paginas.push(1);
+      const de = Math.max(2, tempPagina - 2);
+      const ate = Math.min(totalPaginas - 1, tempPagina + 2);
+      if (de > 2) paginas.push('…');
+      for (let i = de; i <= ate; i++) paginas.push(i);
+      if (ate < totalPaginas - 1) paginas.push('…');
+      paginas.push(totalPaginas);
+    }
+
+    nav.innerHTML =
+      `<button type="button" class="page-btn" data-temp-pag="${tempPagina - 1}"`
+      + `${tempPagina === 1 ? ' disabled' : ''} aria-label="Página anterior">&#8249;</button>`
+      + paginas.map(p => p === '…'
+        ? '<span class="page-ellipsis">…</span>'
+        : `<button type="button" class="page-btn${p === tempPagina ? ' active' : ''}"`
+          + ` data-temp-pag="${p}"${p === tempPagina ? ' aria-current="page"' : ''}>${p}</button>`
+      ).join('')
+      + `<button type="button" class="page-btn" data-temp-pag="${tempPagina + 1}"`
+      + `${tempPagina >= totalPaginas ? ' disabled' : ''} aria-label="Próxima página">&#8250;</button>`;
+
+    nav.querySelectorAll('[data-temp-pag]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const alvo = Number(btn.dataset.tempPag);
+        if (!Number.isFinite(alvo) || alvo < 1 || alvo > totalPaginas || alvo === tempPagina) return;
+        tempPagina = alvo;
+        desenharTemporalidade();
+        const tabela = document.getElementById('table-temporalidade');
+        if (tabela) tabela.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      });
+    });
   }
 
   /**

@@ -277,6 +277,8 @@ a { color: var(--primary); }
 .btn-success:hover:not(:disabled) { background: #15803d; }
 
 .btn-sm { padding: .32rem .75rem; font-size: .78rem; }
+/* Versão miúda: botão de ação da lista (Emprestar) */
+.btn-mini { padding: .18rem .55rem; font-size: .7rem; line-height: 1.3; }
 .btn-block { width: 100%; }
 
 /* Spinner do botão */
@@ -1514,20 +1516,34 @@ td.cell-local { white-space: nowrap; }
 
 /* ============================================================
    ABA PESQUISA — encaixe exato em 14" (1366x768):
-   filtros + 10 documentos + paginação sem barra de rolagem
+   filtros + 10 documentos + paginação sem barra de rolagem.
+   A aba Empréstimo usa a MESMA barra de filtros (pesquisa de
+   disponíveis) e o mesmo encaixe das tabelas; a tela
+   Temporalidade usa o MESMO encaixe (linhas + paginação).
    ============================================================ */
-#section-pesquisa .panel { margin-bottom: .6rem; }
-#section-pesquisa .panel:last-child { margin-bottom: 0; }
-#section-pesquisa .panel-header { padding: .5rem .9rem; border-bottom: none; }
-#section-pesquisa .panel-header h3 { font-size: .86rem; line-height: 1.25; }
-#section-pesquisa .panel-body { padding: .6rem .75rem; }
+#section-pesquisa .panel,
+#section-emprestimo .panel,
+#section-temporalidade .panel { margin-bottom: .6rem; }
+#section-pesquisa .panel:last-child,
+#section-emprestimo .panel:last-child,
+#section-temporalidade .panel:last-child { margin-bottom: 0; }
+#section-pesquisa .panel-header,
+#section-emprestimo .panel-header,
+#section-temporalidade .panel-header { padding: .5rem .9rem; border-bottom: none; }
+#section-pesquisa .panel-header h3,
+#section-emprestimo .panel-header h3,
+#section-temporalidade .panel-header h3 { font-size: .86rem; line-height: 1.25; }
+#section-pesquisa .panel-body,
+#section-emprestimo .panel-body,
+#section-temporalidade .panel-body { padding: .6rem .75rem; }
 /* Barra de filtros da Pesquisa: TUDO em UMA linha (7 campos +
    botões). Os campos são flexíveis e encolhem juntos até o mínimo
    de 78px; abaixo disso a barra rola na horizontal em vez de
    quebrar em duas linhas. Os overrides de grid do .filters-row
    global não valem em contexto flex (o form-actions continua
    inline com os campos). */
-#section-pesquisa .filters-row {
+#section-pesquisa .filters-row,
+#section-emprestimo .filters-row {
   display: flex;
   flex-wrap: nowrap;
   align-items: end;
@@ -1535,18 +1551,22 @@ td.cell-local { white-space: nowrap; }
   overflow-x: auto;
   padding-bottom: .1rem;
 }
-#section-pesquisa .filters-row .form-group {
+#section-pesquisa .filters-row .form-group,
+#section-emprestimo .filters-row .form-group {
   flex: 1 1 90px;
   min-width: 78px;
 }
-#section-pesquisa .filters-row .form-actions {
+#section-pesquisa .filters-row .form-actions,
+#section-emprestimo .filters-row .form-actions {
   flex: 0 0 auto;
   gap: .5rem;
 }
 /* Campos da linha única precisam encolher junto sem estourar
    (tamanho e fonte já vêm do padrão global dos formulários). */
 #section-pesquisa .filters-row input,
-#section-pesquisa .filters-row select { min-width: 0; }
+#section-emprestimo .filters-row input,
+#section-pesquisa .filters-row select,
+#section-emprestimo .filters-row select { min-width: 0; }
 /* Data: fonte .74rem em TODO o sistema — o "dd/mm/aaaa" + ícone
    precisam caber sem cortar o último dígito. */
 .form-group input[type="date"],
@@ -1554,10 +1574,18 @@ td.cell-local { white-space: nowrap; }
   font-size: .74rem;
   padding-right: .25rem;
 }
-#section-pesquisa .data-table th { padding: .32rem .55rem; }
-#section-pesquisa .data-table td { padding: .26rem .55rem; }
-#section-pesquisa .table-actions { gap: .3rem; }
-#section-pesquisa .pagination { padding: .3rem .5rem; }
+#section-pesquisa .data-table th,
+#section-emprestimo .data-table th,
+#section-temporalidade .data-table th { padding: .32rem .55rem; }
+#section-pesquisa .data-table td,
+#section-emprestimo .data-table td,
+#section-temporalidade .data-table td { padding: .26rem .55rem; }
+#section-pesquisa .table-actions,
+#section-emprestimo .table-actions,
+#section-temporalidade .table-actions { gap: .3rem; }
+#section-pesquisa .pagination,
+#section-emprestimo .pagination,
+#section-temporalidade .pagination { padding: .3rem .5rem; }
 
 /* Descrição em uma única linha com reticências (evita linha alta) */
 .cell-desc {
@@ -1611,6 +1639,9 @@ td.cell-local { white-space: nowrap; }
    na frente dele e ficar mais largo p/ a tabela das pastas. */
 .modal-overlay.sobre-mapa { z-index: 400; }
 .modal-overlay.sobre-mapa .modal { max-width: 780px; }
+
+/* Pop-up do formulário de empréstimo: 2 colunas precisam de mais largura */
+.modal-overlay.modal-largo .modal { max-width: 760px; }
 
 .modal-overlay {
   position: fixed;
