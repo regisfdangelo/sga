@@ -13,13 +13,20 @@
 --   remover_caixa(p_caixa_id)
 --   remover_prateleira(p_prateleira_id)
 --   remover_estante(p_estante_id)
---   transferir_estante(p_estante_id, p_sala_id)
+--   transferir_estante(p_estante_id, p_sala_id, p_codigo)
 --   transferir_caixa(p_caixa_id, p_sala_id, p_estante_id,
 --                    p_prateleira_id)
 --   gerar_codigo_livre(p_chave, p_escopo) / proximo_codigo_livre
 --     (mesmo que gerar_codigo/proximo_codigo, mas antes de
 --      consumir um numero novo devolvem o menor BURACO da
 --      sequencia daquele escopo)
+--   sequencia_ate(p_chave, p_escopo, p_minimo) (o contador do
+--     escopo nunca fica atras de um codigo informado no
+--     transferir_estante)
+--
+-- Alem das funcoes, o arquivo apaga (uma vez, secao 7) a
+-- DESCRICAO de estante que era so um codigo ("E-007") - o mapa
+-- usava esse texto no lugar do codigo novo.
 --
 -- REGRAS
 -- ------------------------------------------------------------
@@ -37,6 +44,23 @@
 --    codigo antigo colidiria com uma caixa ja existente la.
 --    Na MESMA sala nada e renumerado: o codigo ja e unico la e a
 --    caixa so troca de estante/prateleira.
+-- 3.1) CODIGO DA ESTANTE NO DESTINO: o front pode INFORMA-LO em
+--    p_codigo - o menor codigo livre da sala de destino
+--    (proximo_codigo_livre) quando o arquivista aceita a
+--    sugestao, ou o que ele digita no padrao E-xxx quando recusa.
+--    Sem p_codigo (ou nulo), vale a gerar_codigo de sempre (fila
+--    da sequencia). Informado, o codigo e validado (formato
+--    E-xxx e estar livre no destino) e o CONTADOR do destino e
+--    jogado para cima, para a proxima gerar_codigo nao devolver
+--    um numero ja gravado.
+-- 3.2) NA TRANSFERENCIA a estante tambem:
+--    - GANHA POSICAO na grade da sala destino (a proxima casa
+--      livre em ordem de leitura; a posicao antiga e da sala de
+--      origem e la poderia colidir com a casa de outra estante);
+--    - PERDE a descricao quando ela era so o CODIGO ANTIGO
+--      (ex.: "E-007"): a arvore e o mapa exibem o codigo, e com
+--      o velho ali o mapa passava a mostrar E-007 para a estante
+--      que ja era a E-002. Descricao escrita a mao fica.
 -- 4) CODIGO AO VOLTAR: na transferir_caixa o codigo de destino
 --    vem da gerar_codigo_livre, que procura primeiro um BURACO na
 --    sequencia da sala (menor numero livre de verdade) antes de
@@ -46,6 +70,8 @@
 --    O transferir_estante NAO usa esta funcao: ele reserva todos
 --    os codigos das caixas num laco ANTES de gravar qualquer um
 --    (secao 4) e, com buraco, todas as reservas sairiam iguais.
+--    O codigo da ESTANTE, quando vem em p_codigo, e so GRAVADO
+--    (nao ha laco de reserva) - secao 4.
 --
 -- POR QUE O "CODIGO TEMPORARIO"
 -- ------------------------------------------------------------
@@ -69,6 +95,11 @@
 --
 -- Os prateleiras NAO sao renumeradas: o indice e
 -- (estante_id, codigo) e a estante mantem o id na transferencia.
+--
+-- A POSICAO (linha/coluna) da estante NAO acompanha: ela vale
+-- dentro da grade da SALA DE ORIGEM. Na transferencia a estante
+-- ganha a proxima casa livre da grade do destino (secao 4), em
+-- ordem de leitura.
 --
 -- SEGURANCA
 -- ------------------------------------------------------------
@@ -220,11 +251,89 @@ $$;
 
 -- ============================================================
 -- 4) TRANSFERIR ESTANTE (sala inteira: estante + prateleiras +
---    caixas). Codigos renumerados no destino.
+--    caixas). Codigos renumerados no destino; a estante ganha
+--    posicao na grade do destino e perde a descricao quando ela
+--    era so o codigo antigo.
+--
+-- p_codigo (opcional, DEFAULT NULL) e o codigo E-xxx que a
+-- estante vai receber na sala de destino, quando quem chama ja
+-- escolheu: o menor codigo livre (proximo_codigo_livre, sugerido
+-- na tela) ou o digitado pelo arquivista. Sem ele a funcao
+-- continua tirando o proximo da fila (gerar_codigo).
+--
+-- A assinatura anterior (2 argumentos) sai do caminho: com as
+-- duas no ar a chamada sem p_codigo ficaria AMBIGUA.
 -- ============================================================
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS assinatura
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname = 'transferir_estante'
+       AND p.pronargs = 2
+  LOOP
+    EXECUTE format('DROP FUNCTION %s', f.assinatura);
+    RAISE NOTICE 'Assinatura antiga removida: %', f.assinatura;
+  END LOOP;
+END $$;
+
+-- ------------------------------------------------------------
+-- 4.1) sequencia_ate(chave, escopo, minimo): joga o CONTADOR do
+--      escopo para cima ate' no minimo `minimo`.
+--
+--      Existe para o p_codigo do transferir_estante: o codigo
+--      informado pelo arquivista pode estar ACIMA do contador
+--      (ex.: E-010 com o contador em 5) e, sem este ajuste, a
+--      proxima gerar_codigo devolveria E-006, E-007 ... e
+--      quebraria no indice unico quando chegasse no E-010.
+--
+--      SECURITY DEFINER: codigo_sequencia tem REVOKE de PUBLIC/
+--      anon/authenticated (sql/13) e quem chama (transferir_
+--      estante) roda SECURITY INVOKER como o usuario.
+--      So SOBE o contador (GREATEST), nunca abaixa, e so ATUALIZA
+--      linha existente: chave nunca usada continua sendo
+--      bootstrapped pela gerar_codigo direto dos dados - o codigo
+--      informado ja estara' la quando isso acontecer.
+--      A trava advisory do escopo e do chamador (a mesma da
+--      gerar_codigo); aqui ela e so reforco.
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.sequencia_ate(
+  p_chave  text,
+  p_escopo text,
+  p_minimo bigint
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF p_minimo IS NULL OR p_minimo < 0 THEN RETURN; END IF;
+  IF p_chave IS NULL OR btrim(p_chave) = '' THEN RETURN; END IF;
+  IF to_regclass('public.codigo_sequencia') IS NULL THEN RETURN; END IF;
+
+  PERFORM pg_advisory_xact_lock(870111, hashtext(
+    p_chave || CASE WHEN p_escopo IS NULL OR btrim(p_escopo) = ''
+                    THEN '' ELSE ':' || p_escopo END));
+
+  UPDATE public.codigo_sequencia
+     SET ultimo = GREATEST(ultimo, p_minimo)
+   WHERE chave = p_chave
+      || CASE WHEN p_escopo IS NULL OR btrim(p_escopo) = ''
+              THEN '' ELSE ':' || p_escopo END;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sequencia_ate(text, text, bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sequencia_ate(text, text, bigint) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.transferir_estante(
   p_estante_id public.estantes.id%TYPE,
-  p_sala_id    public.salas.id%TYPE
+  p_sala_id    public.salas.id%TYPE,
+  p_codigo     text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -241,6 +350,10 @@ DECLARE
   v_cods      text[] := '{}';
   v_prat      int;
   v_cx        int;
+  v_linhas    int;
+  v_colunas   int;
+  v_pos_lin   int;
+  v_pos_col   int;
   i           int;
 BEGIN
   SELECT e.codigo, e.sala_id, e.corredor_id
@@ -281,16 +394,95 @@ BEGIN
   ELSE
     v_escopo := p_sala_id::text;
   END IF;
-  v_novo_cod := public.gerar_codigo('estantes', v_escopo);
+
+  IF p_codigo IS NOT NULL AND btrim(p_codigo) <> '' THEN
+    -- ----------------------------------------------
+    -- CODIGO ESCOLHIDO pelo chamador (sugestao aceita
+    -- ou digitado no padrao E-xxx).
+    -- ----------------------------------------------
+    v_novo_cod := upper(btrim(p_codigo));
+    IF v_novo_cod !~ '^E-[0-9]{3,}$' THEN
+      RAISE EXCEPTION 'Codigo de estante invalido: % (padrao E-xxx, ex.: E-004).',
+        p_codigo;
+    END IF;
+
+    -- mesma trava da gerar_codigo: ninguem pode estar reservando
+    -- um codigo deste escopo ao mesmo tempo
+    PERFORM pg_advisory_xact_lock(870111, hashtext('estantes:' || v_escopo));
+
+    -- tem de estar LIVRE na sala de destino (a checagem e por
+    -- sala inteira, como o indice unico e como a sugestao da tela)
+    IF EXISTS (
+      SELECT 1 FROM public.estantes e
+       WHERE e.sala_id::text = p_sala_id::text
+         AND upper(e.codigo) = v_novo_cod) THEN
+      RAISE EXCEPTION 'O codigo % ja esta em uso na sala de destino.', v_novo_cod;
+    END IF;
+
+    -- o contador do destino nao pode ficar ATRAS de um codigo ja
+    -- gravado: sem este ajuste a proxima gerar_codigo devolveria
+    -- o mesmo numero e o indice unico bararia a gravacao.
+    PERFORM public.sequencia_ate('estantes', v_escopo,
+             (substring(v_novo_cod from '[0-9]+'))::bigint);
+  ELSE
+    -- sem codigo informado: fila da sequencia do destino
+    v_novo_cod := public.gerar_codigo('estantes', v_escopo);
+  END IF;
+
+  -- ----------------------------------------------------------
+  -- POSICAO na grade da sala destino: a proxima casa LIVRE em
+  -- ordem de leitura (o mesmo criterio da tela ao incluir
+  -- estante). A posicao antiga pertence a sala de ORIGEM e, se
+  -- viesse junto, colidiria com a casa de outra estante la.
+  -- Sala sem grade, ou grade cheia: estante entra sem posicao
+  -- (a planta do mapa estima a grade).
+  -- ----------------------------------------------------------
+  SELECT COALESCE(s.linha, 0), COALESCE(s.coluna, 0)
+    INTO v_linhas, v_colunas
+    FROM public.salas s WHERE s.id = p_sala_id;
+
+  v_pos_lin := NULL;
+  v_pos_col := NULL;
+  IF v_linhas > 0 AND v_colunas > 0 THEN
+    SELECT t.l, t.c INTO v_pos_lin, v_pos_col
+      FROM (
+        SELECT g.l, g2.c
+          FROM generate_series(1, v_linhas)     AS g(l)
+          CROSS JOIN generate_series(1, v_colunas) AS g2(c)
+         WHERE NOT EXISTS (
+                 SELECT 1 FROM public.estantes e
+                  WHERE e.sala_id::text = p_sala_id::text
+                    AND e.id <> p_estante_id
+                    AND e.linha = g.l
+                    AND e.coluna = g2.c)
+         ORDER BY g.l, g2.c
+         LIMIT 1) t;
+  END IF;
 
   UPDATE public.estantes
      SET codigo = regexp_replace('~' || p_estante_id::text, '[0-9]', 'D', 'g')
    WHERE id = p_estante_id;
   UPDATE public.estantes
-     SET sala_id = p_sala_id, corredor_id = v_corr
+     SET sala_id  = p_sala_id,
+         corredor_id = v_corr,
+         linha    = v_pos_lin,
+         coluna   = v_pos_col
    WHERE id = p_estante_id;
+  -- Codigo novo + NOME: quando a descricao era so o CODIGO ANTIGO
+  -- ("E-007" da sala de origem - o nome que a estante trazia), ela
+  -- some. A arvore e o MAPA ja exibem o codigo e, com o velho ali,
+  -- o mapa mostrava E-007 para uma estante que ja e' a E-002.
+  -- Descricao escrita a mao (texto de verdade) e' mantida.
   UPDATE public.estantes
-     SET codigo = v_novo_cod
+     SET codigo = v_novo_cod,
+         descricao = CASE
+                        WHEN descricao IS NOT NULL
+                             AND upper(btrim(descricao))
+                                 IN (upper(btrim(v_est_cod)),
+                                     upper(btrim(v_novo_cod)))
+                          THEN NULL
+                        ELSE descricao
+                     END
    WHERE id = p_estante_id;
 
   -- ----------------------------------------------------------
@@ -669,7 +861,7 @@ $$;
 REVOKE ALL ON FUNCTION public.remover_caixa(public.caixas.id%TYPE) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.remover_prateleira(public.prateleiras.id%TYPE) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.remover_estante(public.estantes.id%TYPE) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.transferir_estante(public.estantes.id%TYPE, public.salas.id%TYPE) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.transferir_estante(public.estantes.id%TYPE, public.salas.id%TYPE, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.transferir_caixa(public.caixas.id%TYPE, public.salas.id%TYPE, public.estantes.id%TYPE, public.prateleiras.id%TYPE) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gerar_codigo_livre(text, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.proximo_codigo_livre(text, text) FROM PUBLIC, anon;
@@ -677,10 +869,24 @@ REVOKE ALL ON FUNCTION public.proximo_codigo_livre(text, text) FROM PUBLIC, anon
 GRANT EXECUTE ON FUNCTION public.remover_caixa(public.caixas.id%TYPE) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.remover_prateleira(public.prateleiras.id%TYPE) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.remover_estante(public.estantes.id%TYPE) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.transferir_estante(public.estantes.id%TYPE, public.salas.id%TYPE) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.transferir_estante(public.estantes.id%TYPE, public.salas.id%TYPE, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.transferir_caixa(public.caixas.id%TYPE, public.salas.id%TYPE, public.estantes.id%TYPE, public.prateleiras.id%TYPE) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.gerar_codigo_livre(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.proximo_codigo_livre(text, text) TO authenticated;
+
+-- ------------------------------------------------------------
+-- 7) DADO ANTIGO: estante cujo NOME era so um CODIGO ("E-007").
+--
+-- O codigo ja aparece na arvore (titulo) e no mapa (rotulo do
+-- bloco - o mapa mostra "descricao OU codigo"); com o nome la, a
+-- estante que ja era a E-002 continuava aparecendo como E-007.
+-- Some so o que tem cara de codigo de estante (E-001, E-007 ...);
+-- descricao escrita a mao fica. Idempotente.
+-- ------------------------------------------------------------
+UPDATE public.estantes
+   SET descricao = NULL
+ WHERE descricao IS NOT NULL
+   AND btrim(descricao) ~ '^E-[0-9]{3,}$';
 
 -- ------------------------------------------------------------
 -- VERIFICACOES
@@ -711,6 +917,31 @@ GRANT EXECUTE ON FUNCTION public.proximo_codigo_livre(text, text) TO authenticat
 --   SELECT codigo FROM public.caixas WHERE estante_id = <estante_id> ORDER BY codigo;
 --     -- CX-000001, CX-000002 ... da sala destino, sem repetir
 --     -- nenhum codigo que ja existia nela
+--
+-- -- transferir estante PARA UM CODIGO ESCOLHIDO (o que a tela
+--    sugere/digita em p_codigo):
+--   SELECT public.proximo_codigo_livre('estantes', '<sala_destino_id>');
+--     -- E-002  (menor codigo livre do destino)
+--   SELECT public.transferir_estante(<estante_id>, '<sala_destino_id>', 'E-002');
+--   SELECT codigo, descricao, linha, coluna FROM public.estantes
+--    WHERE id = <estante_id>;
+--     -- codigo E-002, descricao NULL (se era so o codigo antigo)
+--     -- e a 1a casa livre da grade da sala destino (L1 C1, L1 C2
+--     -- ... em ordem de leitura)
+--   -- codigo ja usado no destino -> recusa:
+--   SELECT public.transferir_estante(<estante_id>, '<outra_sala>', 'E-001');
+--   ERROR: O codigo E-001 ja esta em uso na sala de destino.
+--   -- formato errado -> recusa:
+--   SELECT public.transferir_estante(<estante_id>, '<outra_sala>', '2');
+--   ERROR: Codigo de estante invalido: 2 (padrao E-xxx, ex.: E-004).
+--   -- contador do destino nunca fica atras do codigo gravado:
+--   SELECT public.proximo_codigo('estantes', '<sala_destino_id>');
+--     -- nunca devolve um codigo que ja existe la
+--
+-- -- nome que era so codigo (apagado pelo passo 7):
+--   SELECT id, codigo, descricao FROM public.estantes
+--    WHERE descricao ~ '^E-[0-9]{3,}$';       -- 0 linhas
+--   -- e a estante transferida aparece no MAPA com o codigo novo
 --
 -- -- transferir caixa (leva os documentos junto):
 --   SELECT public.transferir_caixa(
@@ -755,4 +986,9 @@ GRANT EXECUTE ON FUNCTION public.proximo_codigo_livre(text, text) TO authenticat
 --     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 --    WHERE n.nspname = 'public' AND p.proname LIKE 'transferir%'
 --      OR n.nspname = 'public' AND p.proname LIKE 'remover_%';
+-- transferir_estante tem de aparecer com 3 argumentos
+-- (p_estante_id, p_sala_id, p_codigo text DEFAULT NULL); se
+-- aparecerem 2, a versao antiga ainda esta no banco - rode este
+-- arquivo de novo (a remocao da assinatura antiga e o DO da
+-- secao 4).
 -- ------------------------------------------------------------

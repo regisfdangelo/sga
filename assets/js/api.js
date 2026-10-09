@@ -17,7 +17,7 @@ const SGA_API = (() => {
    * diferença e avisa o usuário para dar Ctrl+F5. Ao alterar qualquer
    * JS/CSS, incrementar também o ?v= nos HTML.
    */
-  const versao = '20261008.14';
+  const versao = '20261009.1';
 
   /* ----------------------------------------------------------
      Helpers internos
@@ -479,8 +479,11 @@ const SGA_API = (() => {
       return await request('POST', `/rest/v1/rpc/${nome}`, body);
     } catch (err) {
       // 42883 = undefined_function: o banco ainda não tem a RPC
+      // PGRST202 = "Could not find the function": assinatura diferente
+      // (ex.: funcao sem o p_codigo novo do transferir_estante)
       const msg = err.message || '';
-      if (err.code === '42883' || /does not exist/i.test(msg)) {
+      if (err.code === '42883' || err.code === 'PGRST202'
+          || /does not exist|could not find the function/i.test(msg)) {
         if (new RegExp(nome, 'i').test(msg)) {
           throw new Error('RPC ausente ou desatualizada no banco. Execute sql/18_editar_sala_arquivo.sql.');
         }
@@ -498,9 +501,18 @@ const SGA_API = (() => {
   /** Remove a caixa. Recusa se houver documento. */
   const removerCaixa = id => rpcEditarArquivo('remover_caixa', { p_caixa_id: id });
 
-  /** Move a estante INTEIRA (prateleiras e caixas) para outra sala, renumerando os códigos. */
-  const transferirEstante = (estanteId, salaId) =>
-    rpcEditarArquivo('transferir_estante', { p_estante_id: estanteId, p_sala_id: salaId });
+  /**
+   * Move a estante INTEIRA (prateleiras e caixas) para outra sala,
+   * renumerando os códigos. `codigo` (opcional) é o E-xxx que a
+   * estante vai receber no destino: o sugerido pelo
+   * proximo_codigo_livre ou o digitado pelo arquivista. Sem ele o
+   * banco continua tirando o próximo da fila (gerar_codigo).
+   */
+  const transferirEstante = (estanteId, salaId, codigo) => {
+    const body = { p_estante_id: estanteId, p_sala_id: salaId };
+    if (codigo) body.p_codigo = codigo;
+    return rpcEditarArquivo('transferir_estante', body);
+  };
 
   /** Move uma caixa (com os documentos que guarda) para outra sala/estante/prateleira. */
   const transferirCaixa = (caixaId, salaId, estanteId, prateleiraId) =>

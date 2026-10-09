@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261008.14';
+  const VERSAO_APP = '20261009.1';
 
   /* ============================================================
      UTILITÁRIOS
@@ -891,6 +891,9 @@
      descarte, ✓ vermelho onde só ALGUMAS pastas são p/ descarte;
      clique na caixa abre o conteúdo (pastas/documentos e status);
      a descrição da caixa fica no tooltip do mouse.
+     Com GRADE gravada na sala, a estante também pode ser ARRASTADA
+     (mouse) para outra casa da mesma sala — a posição nova é
+     gravada em estantes.linha/coluna.
      ============================================================ */
   let mapaInit = false;
   let mapaSeq = 0;
@@ -900,6 +903,12 @@
   let mapaEstantes = new Map();
   /** Nº de aberturas do modal de conteúdo de caixa (evita resposta velha). */
   let mapaCaixaSeq = 0;
+  /** Arrasto de estante: o que sai ({estId, linha, coluna}), o
+      elemento marcado como destino e o "gravando" (ignora novo
+      arrasto enquanto a posição não volta do banco). */
+  let mapaArrasto = null;
+  let mapaAlvo = null;
+  let mapaMovendo = false;
 
   /**
    * Preenche o select de salas do Painel.
@@ -940,6 +949,73 @@
       document.getElementById('mapa-estantes')?.addEventListener('click', ev => {
         const quad = ev.target.closest('.mapa-quad');
         if (quad && quad.dataset.caixa) abrirConteudoCaixa(quad.dataset.caixa);
+      });
+      // Arrastar estante para outra casa da MESMA sala (mouse):
+      // o alvo pode ser um bloco ocupado (.mapa-est) ou uma casa
+      // vazia (.mapa-casa) — ambos trazem data-linha/data-coluna.
+      // Só arrega quando a sala tem grade gravada
+      // (grid.dataset.editavel = '1', definido em desenharMapa).
+      const gridMapa = document.getElementById('mapa-estantes');
+      // Casa válida como destino: casa vazia (.mapa-casa) ou bloco
+      // de OUTRA estante ([data-est]). O bloco "Sem estante" não
+      // vale — ele não é estante nenhuma e some da grade se a casa
+      // dele for ocupada.
+      const casaValida = el => !!el
+        && (el.classList.contains('mapa-casa') || !!el.dataset.est);
+      gridMapa?.addEventListener('dragstart', ev => {
+        const bloco = ev.target.closest('.mapa-est[data-est]');
+        if (!bloco || ev.currentTarget.dataset.editavel !== '1' || mapaMovendo) {
+          ev.preventDefault();
+          return;
+        }
+        mapaArrasto = {
+          estId: bloco.dataset.est,
+          linha: Number(bloco.dataset.linha),
+          coluna: Number(bloco.dataset.coluna),
+        };
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', bloco.dataset.est);
+        bloco.classList.add('arrastando');
+      });
+      gridMapa?.addEventListener('dragover', ev => {
+        if (!mapaArrasto) return;
+        const alvo = ev.target.closest('[data-linha][data-coluna]');
+        // Fora da grade / casa inválida / é a própria casa: sem marca
+        if (!casaValida(alvo) || !ev.currentTarget.contains(alvo)
+            || (Number(alvo.dataset.linha) === mapaArrasto.linha
+                && Number(alvo.dataset.coluna) === mapaArrasto.coluna)) {
+          marcaAlvo(null);
+          return;
+        }
+        ev.preventDefault();                  // sem isto o drop não dispara
+        ev.dataTransfer.dropEffect = 'move';
+        marcaAlvo(alvo);
+      });
+      gridMapa?.addEventListener('dragleave', ev => {
+        if (ev.currentTarget === ev.target) marcaAlvo(null);
+      });
+      gridMapa?.addEventListener('drop', ev => {
+        ev.preventDefault();
+        const arrasto = mapaArrasto;
+        const alvo = ev.target.closest('[data-linha][data-coluna]');
+        marcaAlvo(null);
+        mapaArrasto = null;
+        const bloco = gridMapa.querySelector('.mapa-est.arrastando');
+        if (bloco) bloco.classList.remove('arrastando');
+        if (!arrasto || !casaValida(alvo)) return;
+        const destino = {
+          linha: Number(alvo.dataset.linha),
+          coluna: Number(alvo.dataset.coluna),
+        };
+        if (!destino.linha || !destino.coluna) return;
+        if (destino.linha === arrasto.linha && destino.coluna === arrasto.coluna) return;
+        moveEstanteNoMapa(arrasto, destino);
+      });
+      gridMapa?.addEventListener('dragend', ev => {
+        const bloco = ev.target.closest('.mapa-est');
+        if (bloco) bloco.classList.remove('arrastando');
+        mapaArrasto = null;
+        marcaAlvo(null);
       });
     }
     // Com linha/coluna (sql/17) a planta respeita a grade da sala;
@@ -1199,7 +1275,9 @@
       grid.innerHTML = '<p class="empty-state">Nenhuma estante ou caixa cadastrada nesta sala</p>';
       delete grid.dataset.linhas;
       delete grid.dataset.colunas;
+      delete grid.dataset.editavel;
       resumo.hidden = true;
+      atualizaDicaMapa();
       encaixaMapa();
       return;
     }
@@ -1293,9 +1371,11 @@
      * `dimMax` guarda a maior dimensão (colunas/linhas) de toda
      * a sala: encaixaMapa() usa para dimensionar as caixas.
      * `pos` = {linha, coluna} grava a casa do bloco na grade.
+     * `estId` (com pos) torna o bloco ARRASTÁVEL: o arrasto é
+     * delegado em initMapaArquivo() e só vale com grade gravada.
      */
     let dimMax = 1;
-    const blocoEstante = (rotulo, lista, pos) => {
+    const blocoEstante = (rotulo, lista, pos, estId) => {
       const n = lista.length;
       const cols = n ? Math.ceil(Math.sqrt(n)) : 1;
       const linhas = n ? Math.ceil(n / cols) : 1;
@@ -1305,8 +1385,13 @@
           lista.map(quadradinho).join('') + '</div>'
         : '<span class="mapa-est-vazia">sem caixas</span>';
       const casa = pos
-        ? ` style="grid-row:${pos.linha};grid-column:${pos.coluna}"` : '';
-      return `<section class="mapa-est"${casa}>` +
+        ? ` style="grid-row:${pos.linha};grid-column:${pos.coluna}"`
+          + ` data-linha="${pos.linha}" data-coluna="${pos.coluna}"` : '';
+      const arrasta = pos && estId
+        ? ' draggable="true"'
+          + ` data-est="${U.esc(estId)}"`
+          + ' title="Arraste para outra casa da grade"' : '';
+      return `<section class="mapa-est"${casa}${arrasta}>` +
         `<span class="mapa-est-rotulo" title="${U.esc(rotulo)}">${U.esc(rotulo)}</span>` +
         `<div class="mapa-est-quadrado">${dentro}</div>` +
         '</section>';
@@ -1386,10 +1471,10 @@
 
     const blocos = estantes.map(e =>
       blocoEstante(e.descricao || e.codigo || '—',
-        caixasPorEst.get(String(e.id)) || [], posDe(e)));
+        caixasPorEst.get(String(e.id)) || [], posDe(e), e.id));
     if (semEstante.length) {
       blocos.push(blocoEstante('Sem estante', semEstante,
-        planta ? planta.semEstante : null));
+        planta ? planta.semEstante : null, null));
     }
 
     // Medidas que encaixaMapa() precisa para distribuir/aumentar
@@ -1398,9 +1483,13 @@
     if (planta) {
       grid.dataset.linhas = String(planta.linhas);
       grid.dataset.colunas = String(planta.colunas);
+      // Grade real gravada -> a estante pode ser arrastada
+      // (initMapaArquivo liga o drag só quando isto está '1').
+      grid.dataset.editavel = '1';
     } else {
       delete grid.dataset.linhas;
       delete grid.dataset.colunas;
+      delete grid.dataset.editavel;
     }
     // Traço cinza claro nas casas livres da grade: é o que mostra a
     // linha x coluna da sala real onde ainda não há estante. Entra
@@ -1409,11 +1498,13 @@
     if (planta && planta.livres.length) {
       planta.livres.forEach(p => blocos.push(
         `<div class="mapa-casa" aria-hidden="true"`
+        + ` data-linha="${p.linha}" data-coluna="${p.coluna}"`
         + ` title="Linha ${p.linha}, coluna ${p.coluna} — sem estante"`
         + ` style="grid-row:${p.linha};grid-column:${p.coluna}"></div>`));
     }
 
     grid.innerHTML = blocos.join('');
+    atualizaDicaMapa();   // DEPOIS do innerHTML: depende dos blocos
 
     // Barra de informação da sala: contagens + % de ocupação da
     // SALA = documentos arquivados / capacidade de arquivamento
@@ -1426,6 +1517,73 @@
       (ocupacao !== null ? ` · ${ocupacao}% de ocupação` : '');
     resumo.hidden = false;
     encaixaMapa();
+  }
+
+  /**
+   * Dica "arraste a estante" (topo do pop-up): aparece só quando
+   * a sala tem GRADE gravada (grid.dataset.editavel = '1') e há
+   * estante na planta — sem grade o arrasto não é permitido.
+   */
+  function atualizaDicaMapa() {
+    const dica = document.getElementById('mapa-dica');
+    const grid = document.getElementById('mapa-estantes');
+    if (!dica || !grid) return;
+    dica.hidden = grid.dataset.editavel !== '1'
+      || !grid.querySelector('.mapa-est[data-est]');
+  }
+
+  /** Destaca a casa-alvo do arrasto (uma por vez). */
+  function marcaAlvo(el) {
+    if (mapaAlvo === el) return;
+    if (mapaAlvo) mapaAlvo.classList.remove('mapa-alvo');
+    mapaAlvo = el || null;
+    if (mapaAlvo) mapaAlvo.classList.add('mapa-alvo');
+  }
+
+  /**
+   * Grava a nova posição da estante arrastada (mesma sala).
+   * `origem`/`destino` = {linha, coluna} da GRADE renderizada; se
+   * a casa de destino estiver ocupada, o ocupante troca com a
+   * arrastada (as duas posições passam a valer o par trocado).
+   * As atualizações são diretas em estantes (RLS de UPDATE aberta
+   * em sql/04_rls_negocio.sql): não há índice/unicidade de
+   * posição, então a troca sequencial não conflita.
+   * Depois re-renderiza o mapa e, se o Editar Sala de Arquivo
+   * estiver mostrando esta mesma sala, recarrega a árvore para o
+   * badge de linha/coluna não ficar velho.
+   */
+  async function moveEstanteNoMapa(arrasto, destino) {
+    if (mapaMovendo) return;
+    const est = mapaEstantes.get(String(arrasto.estId));
+    if (!est) return;
+    const origem = { linha: arrasto.linha, coluna: arrasto.coluna };
+    if (destino.linha === origem.linha && destino.coluna === origem.coluna) return;
+    const grid = document.getElementById('mapa-estantes');
+    const ocupante = grid && grid.querySelector(
+      `.mapa-est[data-est][data-linha="${destino.linha}"][data-coluna="${destino.coluna}"]`);
+    const ocupanteId = ocupante ? String(ocupante.dataset.est) : null;
+
+    mapaMovendo = true;
+    try {
+      await SGA_API.update('estantes', est.id, destino);
+      if (ocupanteId && ocupanteId !== String(est.id)) {
+        await SGA_API.update('estantes', ocupanteId, origem);
+      }
+      const cod = est.codigo || '';
+      U.toast(`${cod ? `Estante ${cod}` : 'Estante'} movida para `
+        + `L${destino.linha} C${destino.coluna}`
+        + (ocupanteId ? ' (trocou com a estante que estava lá)' : '') + '.', 'success');
+      await renderMapaArquivo();
+      const sel = document.getElementById('mapa-sala');
+      if (edArq.sala && sel && String(edArq.sala.id) === String(sel.value)) {
+        carregarEstruturaSala().catch(() => {});
+      }
+    } catch (err) {
+      U.toast(err.message, 'error');
+      renderMapaArquivo().catch(() => {});  // volta ao estado gravado
+    } finally {
+      mapaMovendo = false;
+    }
   }
 
   /**
@@ -2923,8 +3081,9 @@
     Modal.open(`Transferir estante ${est.codigo}`, `
       <form class="form-stack" onsubmit="return false">
         <p class="ed-aviso">Move a estante com ${prats} prateleira(s) e ${cxs} caixa(s).
-          A estante e as caixas recebem códigos novos na sala de destino
-          (o código é único dentro da sala).</p>
+          Na sala de destino as caixas recebem códigos novos (o código é único
+          dentro da sala) e, para a estante, o sistema indica o menor código
+          livre — você aceita o sugerido ou informa outro (padrão E-xxx).</p>
         <div class="form-group">
           <label for="edf-dest-sala">Sala de destino *</label>
           <select id="edf-dest-sala">${opcoesDestino(destino, 'Selecione a sala…')}</select>
@@ -2934,13 +3093,95 @@
     ligaBotoesModal('Transferir', async () => {
       const salaId = document.getElementById('edf-dest-sala').value;
       if (!salaId) { U.toast('Selecione a sala de destino.', 'warning'); return; }
-      const r = await SGA_API.transferirEstante(est.id, salaId);
-      Modal.close();
-      U.toast(`Estante ${r.codigo_anterior} → ${r.codigo_novo} `
-        + `(${r.caixas} caixa(s) renumeradas).`, 'success');
-      loadLocalSelects();
-      await carregarEstruturaSala();
+      await sugereCodigoEstante(est, salaId);
     });
+  }
+
+  /**
+   * Passo 2 da transferência de ESTANTE: lê o MENOR código livre
+   * da sala de destino (proximo_codigo_livre) e pergunta se a
+   * estante vai para ele.
+   *   - Sim -> transfere para o código sugerido;
+   *   - Não -> abre a tela onde o arquivista digita o código
+   *            (padrão E-xxx).
+   * Banco sem a RPC: sem sugestão e a transferência sai direto
+   * com o código que o banco gerar (fila da sequência).
+   */
+  async function sugereCodigoEstante(est, salaId) {
+    let sugerido = null;
+    try {
+      sugerido = await SGA_API.proximoCodigoLivre('estantes', salaId);
+    } catch { /* banco sem a RPC proximo_codigo_livre */ }
+    if (!sugerido) return concluiTransferenciaEstante(est, salaId, null);
+
+    const sala = salasCache.find(s => String(s.id) === String(salaId)) || {};
+    Modal.open('Código da estante no destino', `
+      <form class="form-stack" onsubmit="return false">
+        <p class="ed-aviso">A sala ${U.esc(sala.codigo || '')} tem o menor código
+          disponível <strong>${U.esc(sugerido)}</strong> para a estante
+          ${U.esc(est.codigo)}.</p>
+        <p class="cx-prev">Mover a estante para este código?</p>
+      </form>`,
+      '<button class="btn btn-ghost" id="edf-outro">Não</button>'
+      + '<button class="btn btn-primary" id="edf-confirmar">Sim</button>');
+
+    const outro = document.getElementById('edf-outro');
+    if (outro) outro.addEventListener('click', () =>
+      informaCodigoEstante(est, salaId, sugerido));
+
+    ligaBotoesModal('Sim', () => concluiTransferenciaEstante(est, salaId, sugerido));
+  }
+
+  /**
+   * Passo 3 (o arquivista recusou a sugestão): ele digita o novo
+   * código da estante no padrão E-xxx. O banco valida de novo
+   * (formato e disponibilidade) na hora da gravação.
+   */
+  function informaCodigoEstante(est, salaId, sugerido) {
+    const dica = sugerido
+      ? ` Menor código disponível: <strong>${U.esc(sugerido)}</strong>.` : '';
+    Modal.open(`Novo código da estante ${est.codigo}`, `
+      <form class="form-stack" onsubmit="return false">
+        <p class="ed-aviso">Informe o código da estante na sala de destino,
+          no padrão E-xxx (ex.: E-004).${dica}</p>
+        <div class="form-group">
+          <label for="edf-est-codigo">Novo código *</label>
+          <input type="text" id="edf-est-codigo" maxlength="10"
+            placeholder="E-004" autocomplete="off">
+        </div>
+      </form>`, botoesModal('Transferir'));
+
+    const campo = document.getElementById('edf-est-codigo');
+    if (campo) campo.focus();
+
+    ligaBotoesModal('Transferir', async () => {
+      const codigo = (document.getElementById('edf-est-codigo').value || '')
+        .trim().toUpperCase();
+      if (!/^E-\d{3,}$/.test(codigo)) {
+        U.toast('Código no padrão E-xxx, ex.: E-004.', 'warning');
+        return;
+      }
+      // Aviso imediato se o código já existe no destino (o banco
+      // confirma de novo na gravação, caso alguém tenha usado ele
+      // nesse meio-tempo).
+      const usados = await SGA_API.listTudo('estantes',
+        `&sala_id=eq.${encodeURIComponent(salaId)}`, 'codigo').catch(() => null);
+      if (usados && usados.some(e => String(e.codigo).trim().toUpperCase() === codigo)) {
+        U.toast(`O código ${codigo} já está em uso na sala de destino.`, 'warning');
+        return;
+      }
+      await concluiTransferenciaEstante(est, salaId, codigo);
+    });
+  }
+
+  /** Grava a transferência com o código escolhido (ou o do banco). */
+  async function concluiTransferenciaEstante(est, salaId, codigo) {
+    const r = await SGA_API.transferirEstante(est.id, salaId, codigo);
+    Modal.close();
+    U.toast(`Estante ${r.codigo_anterior} → ${r.codigo_novo} `
+      + `(${r.caixas} caixa(s) renumeradas).`, 'success');
+    loadLocalSelects();
+    await carregarEstruturaSala();
   }
 
   /**

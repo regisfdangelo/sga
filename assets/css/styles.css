@@ -908,6 +908,17 @@ a { color: var(--primary); }
   color: #fff;
 }
 .mapa-popup-topo .mapa-legenda { margin: 0; color: #cbd5e1; }
+/* Dica de arrasto (escondida quando a sala não tem grade gravada) */
+.mapa-dica {
+  display: inline-flex;
+  align-items: center;
+  padding: .2rem .6rem;
+  border: 1px dashed rgba(255, 255, 255, .5);
+  border-radius: 999px;
+  font-size: .74rem;
+  color: #fde68a;
+}
+.mapa-dica[hidden] { display: none; }
 .mapa-popup-fechar {
   margin-left: auto;
   padding: .35rem .85rem;
@@ -1012,6 +1023,24 @@ a { color: var(--primary); }
   border: 2px solid #94a3b8;
   border-radius: 10px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+
+/* ARRASTAR estante (mouse) para outra casa da grade da mesma sala.
+   O bloco só recebe [data-est] quando a sala tem grade gravada
+   (desenharMapa), então fora daí não há cursor de mão nem arrasto.
+   Enquanto leva, o bloco fica translúcido; a casa sob o mouse fica
+   com o contorno tracejado azul (.mapa-alvo, casa vazia ou ocupada). */
+.mapa-estantes .mapa-est[data-est] { cursor: grab; }
+.mapa-estantes .mapa-est[data-est]:active { cursor: grabbing; }
+.mapa-estantes .mapa-est.arrastando {
+  opacity: .4;
+  filter: grayscale(.2);
+}
+.mapa-popup .mapa-alvo {
+  outline: 3px dashed var(--primary-light);
+  outline-offset: -3px;
+  background: rgba(59, 130, 246, .14);
+  border-radius: 10px;
 }
 
 /* Grade uniforme das caixas dentro da estante (colunas via JS) */
