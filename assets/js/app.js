@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261106.3';
+  const VERSAO_APP = '20261106.4';
 
   /* ============================================================
      UTILITÁRIOS
@@ -2387,6 +2387,13 @@
       });
     }
 
+    // Código da aba "Gerar Sala de Arquivo": busca sempre fresco
+    // ao abrir a aba. Uma exclusão de sala (aqui ou em outra
+    // sessão) recalcula a sequência no banco e o preview antigo
+    // continuava mostrando o SL-xxx errado até um F5.
+    const tabGerar = document.querySelector('.tab[data-tab="tab-gerar"]');
+    if (tabGerar) tabGerar.addEventListener('click', refreshCodigos);
+
     // Carregamentos iniciais
     loadLocalSelects();
   }
@@ -3889,6 +3896,10 @@
           // estiver aberta no editor, sincronizaEditorSala() limpa
           // a tela (ela não existe mais na lista).
           loadLocalSelects();
+          // A exclusão recalcula a sequência de salas no banco:
+          // atualiza o próximo código da aba "Gerar Sala de
+          // Arquivo" sem exigir F5.
+          refreshCodigos();
         } catch (err) {
           U.toast(err.message, 'error');
           U.loading(btnConfirmar, false);
