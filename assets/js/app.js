@@ -9,7 +9,7 @@
   'use strict';
 
   /** Deve ser igual a SGA_API.versao (assets/js/api.js). */
-  const VERSAO_APP = '20261009.4';
+  const VERSAO_APP = '20261106.3';
 
   /* ============================================================
      UTILITÁRIOS
@@ -2371,6 +2371,22 @@
     // Documento: ao escolher a sala, aloca sozinho a 1ª caixa livre
     document.getElementById('doc-sala').addEventListener('change', alocarCaixaPorSala);
 
+    // ---------- Excluir Sala de Arquivo ----------
+    // Aba restrita a administradores (o painel some para os demais
+    // perfis e excluirSala() revalida antes de qualquer requisição).
+    const perfilCadastro = (SGA_API.getStoredUser() || {}).perfil;
+    if (perfilCadastro !== 'admin') {
+      const tabExcluir = document.querySelector('.tab[data-tab="tab-excluir-sala"]');
+      if (tabExcluir) tabExcluir.hidden = true;
+      const painelExcluir = document.getElementById('tab-excluir-sala');
+      if (painelExcluir) painelExcluir.hidden = true;
+    } else {
+      document.getElementById('form-excluir-sala').addEventListener('submit', e => {
+        e.preventDefault();
+        excluirSala();
+      });
+    }
+
     // Carregamentos iniciais
     loadLocalSelects();
   }
@@ -2417,6 +2433,8 @@
 
       fillSelect('ed-sala', salas, 'Selecione a sala…');
       fillSelect('doc-sala', salas, 'Selecione a sala…');
+      // Select da aba "Excluir Sala de Arquivo" (admin).
+      fillSelect('excl-sala', salas, 'Selecione a sala…');
       // Filtro de sala da aba Pesquisa: mesma lista/cache de salas.
       fillSelect('pesq-sala', salas, 'Todas as salas');
       // Filtro de sala da pesquisa da aba Empréstimo.
@@ -3772,6 +3790,115 @@
       loadLocalSelects();
       await carregarEstruturaSala();
     } catch (err) { U.toast(err.message, 'error'); }
+  }
+
+  /**
+   * Modal de confirmação da exclusão da SALA (padrão do modal de
+   * descarte): mostra a sala, avisa da cascata e só libera o
+   * botão perigoso quando o administrador digitar exatamente a
+   * palavra "Excluir".
+   */
+  function abrirConfirmacaoExcluirSala(sala, aoConfirmar) {
+    const linhas = [
+      ['Código', U.esc(sala.codigo || '—')],
+      ['Descrição', U.esc(sala.descricao || '—')],
+    ];
+
+    const body = `<dl>${linhas
+        .map(([k, v]) => `<div class="detail-row"><dt>${k}</dt><dd>${v}</dd></div>`)
+        .join('')}</dl>
+      <p class="descarte-aviso">
+        <strong>Atenção:</strong> a exclusão é permanente. A sala e toda a
+        estrutura dela (corredores, estantes, prateleiras e caixas) serão
+        removidas em cascata. A exclusão só é permitida quando a sala
+        não guarda nenhuma pasta de documento.
+      </p>
+      <div class="form-group">
+        <label for="excluir-sala-palavra">Digite <strong>Excluir</strong> para confirmar</label>
+        <input type="text" id="excluir-sala-palavra" autocomplete="off" placeholder="Excluir">
+      </div>`;
+
+    const footer = '<button class="btn btn-ghost" id="excluir-sala-cancelar">Cancelar</button>'
+      + '<button class="btn btn-danger" id="excluir-sala-confirmar" disabled>Excluir</button>';
+
+    Modal.open('Confirmar exclusão da sala', body, footer);
+
+    const input = document.getElementById('excluir-sala-palavra');
+    const btnConfirmar = document.getElementById('excluir-sala-confirmar');
+    input.addEventListener('input', () => {
+      btnConfirmar.disabled = input.value !== 'Excluir';
+    });
+    input.focus();
+    document.getElementById('excluir-sala-cancelar')
+      .addEventListener('click', () => Modal.close());
+    btnConfirmar.addEventListener('click', () => aoConfirmar(btnConfirmar));
+  }
+
+  /**
+   * Exclui a sala de arquivo escolhida (somente admin).
+   *
+   * Regra: a sala só pode ser excluída se estiver SEM nenhuma
+   * pasta de documento. A pré-checagem abaixo (embed
+   * caixas!inner) evita abrir o modal sem motivo, mas quem
+   * DECIDE é a RPC (sql/23_remover_sala.sql), que volta a contar
+   * os documentos no banco antes do DELETE em cascata
+   * (caixas > prateleiras > estantes > corredores > salas).
+   */
+  async function excluirSala() {
+    const isAdmin = (SGA_API.getStoredUser() || {}).perfil === 'admin';
+    if (!isAdmin) {
+      U.toast('Somente administradores podem excluir salas de arquivo.', 'warning');
+      return;
+    }
+
+    const sel = document.getElementById('excl-sala');
+    const sala = salasCache.find(s => String(s.id) === String(sel ? sel.value : ''));
+    if (!sala) {
+      U.toast('Selecione a sala que deseja excluir.', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('btn-excluir-sala');
+    U.loading(btn, true);
+    try {
+      // Pasta de documento na sala: documentos -> caixas -> sala.
+      // !inner: documento sem caixa (descartado) ou com caixa de
+      // outra sala não conta. limit=1 basta para saber se existe.
+      const docs = await SGA_API.list(
+        'documentos',
+        `&caixas.sala_id=eq.${encodeURIComponent(sala.id)}&limit=1`,
+        'id,caixas!inner(id)'
+      );
+      if ((docs || []).length > 0) {
+        U.toast(`A sala ${sala.codigo} guarda pasta(s) de documento arquivado(s). `
+          + 'Transfira ou exclua as pastas antes de remover a sala.', 'error');
+        return;
+      }
+
+      abrirConfirmacaoExcluirSala(sala, async btnConfirmar => {
+        U.loading(btnConfirmar, true);
+        try {
+          const r = await SGA_API.removerSala(sala.id);
+          Modal.close();
+          U.toast(`Sala ${r.codigo || sala.codigo} excluída`
+            + (r.estantes != null
+              ? ` (${r.estantes} estante(s), ${r.prateleiras} prateleira(s), ${r.caixas} caixa(s) em cascata).`
+              : '.'),
+            'success');
+          // Recria todos os selects de sala e, se a sala excluída
+          // estiver aberta no editor, sincronizaEditorSala() limpa
+          // a tela (ela não existe mais na lista).
+          loadLocalSelects();
+        } catch (err) {
+          U.toast(err.message, 'error');
+          U.loading(btnConfirmar, false);
+        }
+      });
+    } catch (err) {
+      U.toast(err.message, 'error');
+    } finally {
+      U.loading(btn, false);
+    }
   }
 
   function fillSelect(id, rows, placeholder) {

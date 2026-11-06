@@ -6,7 +6,7 @@
   <meta name="description" content="SGA - Painel de gestão de arquivo">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SGA | Painel</title>
-  <link rel="stylesheet" href="assets/css/styles.css?v=20261009.4">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20261106.3">
 </head>
 <body class="app-page">
 
@@ -280,7 +280,8 @@
           <div class="tabs" role="tablist">
             <button class="tab active" data-tab="tab-documento" role="tab">Pasta / Documentos</button>
             <button class="tab" data-tab="tab-local" role="tab">Editar Sala de Arquivo</button>
-<button class="tab" data-tab="tab-gerar" role="tab">Gerar Sala de Arquivo</button>
+            <button class="tab" data-tab="tab-gerar" role="tab">Gerar Sala de Arquivo</button>
+            <button class="tab" data-tab="tab-excluir-sala" role="tab" data-perfis="admin">Excluir Sala de Arquivo</button>
         </div>
 
           <!-- Aba Documentos -->
@@ -503,6 +504,31 @@
                   <div class="form-actions">
                     <button type="submit" class="btn btn-primary" id="btn-gerar-sala">Calcular</button>
                     <p class="gerar-resumo" id="gerar-resumo"></p>
+                  </div>
+                </form>
+              </div>
+            </article>
+          </div>
+
+          <!-- Aba Excluir Sala de Arquivo (admin): só permite excluir
+               sala que esteja SEM nenhuma pasta de documento; a
+               confirmacao exige digitar a palavra "Excluir". -->
+          <div class="tab-panel" id="tab-excluir-sala">
+            <article class="panel">
+              <header class="panel-header"><h3>Excluir Sala de Arquivo</h3></header>
+              <div class="panel-body">
+                <form id="form-excluir-sala" novalidate>
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for="excl-sala">Sala *</label>
+                      <select id="excl-sala" required><option value="">Selecione a sala…</option></select>
+                    </div>
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit" class="btn btn-danger" id="btn-excluir-sala">
+                      <span class="btn-label">Excluir</span>
+                      <span class="btn-spinner" aria-hidden="true"></span>
+                    </button>
                   </div>
                 </form>
               </div>
@@ -862,8 +888,8 @@
   <!-- Toast -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-  <script src="assets/js/config.js?v=20261009.4"></script>
-  <script src="assets/js/api.js?v=20261009.4"></script>
-  <script src="assets/js/app.js?v=20261009.4"></script>
+  <script src="assets/js/config.js?v=20261106.3"></script>
+  <script src="assets/js/api.js?v=20261106.3"></script>
+  <script src="assets/js/app.js?v=20261106.3"></script>
 </body>
 </html>

@@ -120,6 +120,13 @@ a { color: var(--primary); }
   font-size: .8rem;
 }
 
+/* Versão do sistema: linha própria abaixo do texto do rodapé,
+   centralizada e em fonte menor que ele. */
+.login-footer .login-versao {
+  margin-top: .3rem;
+  font-size: .65rem;
+}
+
 .input-password { position: relative; }
 .input-password input { width: 100%; padding-right: 2.75rem; }
 
